@@ -134,11 +134,3 @@ npm run build
 
 Cobertura mínima por métrica: 75% no servidor e 25% no frontend. Use
 `npm run format` e `npm run lint:fix` para as correções automáticas disponíveis.
-
-## Documentação acadêmica
-
-A [diretriz Web Apps da faculdade](https://github.com/CatolicaSC-Portfolio/The-Portfolio-Playbook/blob/main/directions/portfolio-directions-webapp.md)
-exige requisitos funcionais, casos de uso ou histórias de usuário, diagrama de
-arquitetura e instruções de deploy em Wiki vinculada ao repositório. A publicação
-dessa Wiki está pendente. A aplicação permanece restrita ao uso local; o deploy
-público, HTTPS e a execução remota do pipeline ainda não foram validados.
