@@ -1,0 +1,6 @@
+# Referência dos valores EFÊMEROS do job GitHub Actions, não copiar sobre .env local.
+# O workflow injeta estes valores diretamente e não usa secrets de produção.
+DATABASE_URL=postgresql://visaoativa_ci:synthetic_ci_only@127.0.0.1:5432/visaoativa_ci?schema=public
+LOCAL_PRODUCTS_ENABLED=false
+# Cada integração provisiona seu hash sintético, sem usar a senha do acadêmico.
+ADMIN_PASSWORD_HASH=

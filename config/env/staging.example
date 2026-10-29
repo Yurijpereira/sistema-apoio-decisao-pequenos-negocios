@@ -1,0 +1,9 @@
+# Modelo sem credenciais. Ambiente futuro, ainda não provisionado/publicado.
+# Injetar valores pelo secret manager; não versionar o arquivo preenchido.
+DATABASE_URL=postgresql://visaoativa_staging:SUBSTITUIR@postgres.staging.internal:5432/visaoativa_staging?schema=public&sslmode=verify-full
+ADMIN_PASSWORD_HASH=
+LOCAL_PRODUCTS_ENABLED=false
+HOST=127.0.0.1
+PORT=3000
+NODE_ENV=production
+# A aplicação continua bloqueando proxy/IP externo. Não habilita acesso público.

@@ -1,0 +1,74 @@
+generator client {
+  provider            = "prisma-client"
+  output              = "../generated/prisma"
+  importFileExtension = "ts"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model Product {
+  id             String   @id @default(uuid()) @db.Uuid
+  name           String   @db.VarChar(120)
+  salePriceCents Int
+  unitCostCents  Int
+  active         Boolean  @default(true)
+  createdAt      DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt      DateTime @updatedAt @db.Timestamptz(3)
+
+  sales Sale[]
+
+  @@index([createdAt, id])
+}
+
+model Sale {
+  id                  String   @id @default(uuid()) @db.Uuid
+  productId           String   @db.Uuid
+  product             Product  @relation(fields: [productId], references: [id], onDelete: Restrict)
+  productNameSnapshot String   @db.VarChar(120)
+  date                DateTime @db.Date
+  quantity            Int
+  unitPriceCents      Int
+  unitCostCents       Int
+  createdAt           DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt           DateTime @updatedAt @db.Timestamptz(3)
+
+  @@index([date, id])
+  @@index([productId])
+}
+
+model Expense {
+  id          String   @id @default(uuid()) @db.Uuid
+  date        DateTime @db.Date
+  category    String   @db.VarChar(80)
+  description String?  @db.VarChar(500)
+  amountCents Int
+  createdAt   DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt   DateTime @updatedAt @db.Timestamptz(3)
+
+  @@index([date, id])
+}
+
+// Credencial única criada no primeiro acesso; o ambiente pode fornecer uma credencial externa.
+model AdminAccount {
+  id                     Int      @id @default(1)
+  passwordHash           String   @db.VarChar(180)
+  environmentFingerprint String?  @db.Char(64)
+  createdAt              DateTime @default(now()) @db.Timestamptz(3)
+}
+
+// Uma sessão ativa por vez.
+model AdminSession {
+  id                    Int      @id @default(1)
+  tokenHash             String   @unique @db.Char(64)
+  credentialFingerprint String   @db.Char(64)
+  expiresAt             DateTime @db.Timestamptz(3)
+  createdAt             DateTime @default(now()) @db.Timestamptz(3)
+}
+
+model AdminLoginLimit {
+  id           Int      @id @default(1)
+  attempts     Int      @default(1)
+  windowEndsAt DateTime @db.Timestamptz(3)
+}

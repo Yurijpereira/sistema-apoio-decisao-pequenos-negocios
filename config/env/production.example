@@ -1,0 +1,9 @@
+# Modelo sem credenciais. Não é uma implantação e não libera edição pública.
+# Usuário, banco e segredos EXCLUSIVOS de produção; nunca reaproveitar staging/dev.
+DATABASE_URL=postgresql://visaoativa_production:SUBSTITUIR@postgres.production.internal:5432/visaoativa_production?schema=public&sslmode=verify-full
+ADMIN_PASSWORD_HASH=
+LOCAL_PRODUCTS_ENABLED=false
+HOST=127.0.0.1
+PORT=3000
+NODE_ENV=production
+# Revisão de proxy confiável/HTTPS e autorização de deploy continuam pendentes.

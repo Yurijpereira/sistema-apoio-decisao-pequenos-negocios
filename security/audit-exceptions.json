@@ -1,0 +1,95 @@
+{
+  "reviewedOn": "2026-10-16",
+  "expiresOn": "2026-10-30",
+  "reason": "Dois advisories sem versão corrigida na consulta de 16/10/2026. Acesso somente local, sem padrões glob fornecidos pelo usuário nem certificados externos. Não autoriza publicação; revisar correções e retirar exceções assim que possível.",
+  "vulnerabilities": [
+    {
+      "name": "@nuxt/nitro-server",
+      "severity": "high",
+      "via": ["nitropack", "nuxt"],
+      "versions": {
+        "node_modules/@nuxt/nitro-server": "4.6.1"
+      }
+    },
+    {
+      "name": "@nuxt/vite-builder",
+      "severity": "high",
+      "via": ["nuxt"],
+      "versions": {
+        "node_modules/@nuxt/vite-builder": "4.6.1"
+      }
+    },
+    {
+      "name": "@nuxt/vite-server",
+      "severity": "high",
+      "via": ["nuxt"],
+      "versions": {
+        "node_modules/nuxt/node_modules/@nuxt/vite-server": "4.6.1"
+      }
+    },
+    {
+      "name": "braces",
+      "severity": "high",
+      "via": ["https://github.com/advisories/GHSA-vfj7-8cjw-p6xm"],
+      "versions": {
+        "node_modules/braces": "3.0.3"
+      }
+    },
+    {
+      "name": "fast-glob",
+      "severity": "high",
+      "via": ["micromatch"],
+      "versions": {
+        "node_modules/fast-glob": "3.3.3"
+      }
+    },
+    {
+      "name": "globby",
+      "severity": "high",
+      "via": ["fast-glob", "micromatch"],
+      "versions": {
+        "node_modules/globby": "16.2.4"
+      }
+    },
+    {
+      "name": "listhen",
+      "severity": "high",
+      "via": ["node-forge"],
+      "versions": {
+        "node_modules/listhen": "1.10.1"
+      }
+    },
+    {
+      "name": "micromatch",
+      "severity": "high",
+      "via": ["braces"],
+      "versions": {
+        "node_modules/micromatch": "4.0.8"
+      }
+    },
+    {
+      "name": "nitropack",
+      "severity": "high",
+      "via": ["listhen"],
+      "versions": {
+        "node_modules/nitropack": "2.13.4"
+      }
+    },
+    {
+      "name": "node-forge",
+      "severity": "high",
+      "via": ["https://github.com/advisories/GHSA-86w9-cpqp-85rv"],
+      "versions": {
+        "node_modules/node-forge": "1.4.0"
+      }
+    },
+    {
+      "name": "nuxt",
+      "severity": "high",
+      "via": ["@nuxt/nitro-server", "@nuxt/vite-builder", "@nuxt/vite-server"],
+      "versions": {
+        "node_modules/nuxt": "4.6.1"
+      }
+    }
+  ]
+}

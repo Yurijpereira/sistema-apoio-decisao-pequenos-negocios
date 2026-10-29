@@ -1,0 +1,89 @@
+name: Qualidade e segurança
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  quality:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: visaoativa_ci
+          POSTGRES_PASSWORD: synthetic_ci_only
+          POSTGRES_DB: visaoativa_ci
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U visaoativa_ci -d visaoativa_ci"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      DATABASE_URL: postgresql://visaoativa_ci:synthetic_ci_only@127.0.0.1:5432/visaoativa_ci?schema=public
+      LOCAL_PRODUCTS_ENABLED: 'false'
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '24.15.0'
+          cache: npm
+      - run: npm install --global npm@12.2.0
+      - run: npm ci --strict-peer-deps
+      - run: npm run format:check
+      - run: npm run db:validate && npm run db:generate && npm run db:migrate:deploy && npm run db:status
+      - run: npm run lint && npm run typecheck
+      - run: npm run test:coverage
+      - run: npm run build
+      - run: npm run test:integration
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        if: always()
+        with:
+          name: cobertura-backend-frontend
+          path: |
+            coverage/
+            .local/reports/observability.json
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 14
+  security:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '24.15.0'
+          cache: npm
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.13'
+      - run: npm install --global npm@12.2.0
+      - run: npm ci --strict-peer-deps
+      - run: python -m pip install -r requirements-security.txt
+      - run: semgrep --test security/ --metrics=off --disable-version-check
+      - name: Análise estática local, sem upload de código
+        run: >-
+          semgrep scan --config security/semgrep.yml --metrics=off --disable-version-check
+          --error --strict --json-output=semgrep.json --sarif-output=semgrep.sarif
+          app server shared scripts
+      - run: npm run security:audit
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        if: always()
+        with:
+          name: seguranca-estatica-e-dependencias
+          path: |
+            semgrep.json
+            semgrep.sarif
+            .local/reports/security/*.json
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 14

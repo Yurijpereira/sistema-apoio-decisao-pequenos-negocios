@@ -1,0 +1,26 @@
+node_modules/
+.nuxt/
+.output/
+.data/
+dist/
+coverage/
+generated/
+.env
+.env.*
+!.env.example
+*.log
+.DS_Store
+.local/
+semgrep.json
+semgrep.sarif
+
+# Documentação interna mantida no Obsidian; encaminhamento da IA apenas local.
+/docs/
+/AGENTS.md
+
+# Configurações locais de agentes e credenciais de ferramentas.
+.agents/
+.codex/
+.aws/
+/AGENTS.override.md
+/CLAUDE.md

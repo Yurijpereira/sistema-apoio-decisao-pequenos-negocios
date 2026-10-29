@@ -1,0 +1,22 @@
+# Arquivos gerados, privados ou administrados por outras ferramentas.
+node_modules/
+.nuxt/
+.output/
+.data/
+dist/
+generated/
+coverage/
+.local/
+.git/
+.env
+.env.*
+package-lock.json
+
+# Fontes acadêmicas e registros históricos não fazem parte da reformatação.
+docs/
+AGENTS.md
+README.md
+prisma/
+
+# Fixtures intencionalmente vulneráveis do analisador estático.
+security/semgrep.test.*
