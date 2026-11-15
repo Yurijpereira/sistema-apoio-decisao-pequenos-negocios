@@ -1,4 +1,4 @@
-// Autorização exercitada na suíte auth; esta suíte isola persistência e regras de negócio.
+// Exercita acesso local, validação e persistência sem autenticação.
 import assert from 'node:assert/strict'
 import { createServer, IncomingMessage, ServerResponse, request as nodeRequest } from 'node:http'
 import { Socket } from 'node:net'
@@ -13,6 +13,7 @@ import update from '../../server/api/products/[id].put.ts'
 import status from '../../server/api/products/[id].patch.ts'
 
 const database = vi.hoisted(() => ({
+  $queryRaw: vi.fn(),
   product: {
     findMany: vi.fn(),
     count: vi.fn(),
@@ -21,7 +22,6 @@ const database = vi.hoisted(() => ({
     update: vi.fn(),
   },
 }))
-vi.mock('../../server/utils/admin-session.ts', () => ({ requireAdminSession: async () => {} }))
 vi.mock('../../server/utils/prisma.ts', () => ({ getPrisma: () => database }))
 const id = '9c324b81-4434-4e66-b57a-0eaac04b0806'
 const product = {
@@ -74,6 +74,7 @@ afterAll(async () => {
 })
 beforeEach(() => {
   vi.stubEnv('LOCAL_PRODUCTS_ENABLED', 'true')
+  vi.stubEnv('DATABASE_URL', 'postgresql://synthetic:synthetic@127.0.0.1:5432/test?schema=public')
   vi.resetAllMocks()
   database.product.findMany.mockResolvedValue([product])
   database.product.count.mockResolvedValue(1)
@@ -83,6 +84,35 @@ beforeEach(() => {
 })
 
 describe('API de produtos pelo HTTP real com persistência isolada', () => {
+  it('busca por nome no banco, mantém paginação e trata padrões como texto literal', async () => {
+    database.$queryRaw.mockResolvedValueOnce([product]).mockResolvedValueOnce([{ total: '1' }])
+    const response = await request(
+      '?status=active&page=2&search=' + encodeURIComponent("pao%_' OR 1=1"),
+    )
+    assert.equal(response.status, 200)
+    const data = await response.json()
+    assert.equal(data.page, 2)
+    assert.equal(data.total, 1)
+    assert.equal(data.items[0].name, 'Pão teste')
+    assert.equal(database.product.findMany.mock.calls.length, 0)
+    const filter = database.$queryRaw.mock.calls[0]?.[2]
+    assert.ok(filter)
+    assert.ok(filter.values.includes("pao%_' OR 1=1"))
+    assert.ok(!filter.sql.includes("pao%_' OR 1=1"))
+    assert.equal(database.$queryRaw.mock.calls[0]?.at(-1), 20)
+    assert.equal((await request('?search=a&search=b')).status, 400)
+    assert.equal((await request('?search=' + encodeURIComponent('x'.repeat(121)))).status, 400)
+  })
+  it('não expõe falhas da busca e rejeita contagem de produtos insegura', async () => {
+    database.$queryRaw.mockRejectedValueOnce(new Error('SEGREDO SQL'))
+    const failed = await request('?search=pao')
+    assert.equal(failed.status, 503)
+    assert.doesNotMatch(await failed.text(), /SEGREDO SQL/)
+    database.$queryRaw
+      .mockResolvedValueOnce([product])
+      .mockResolvedValueOnce([{ total: '9007199254740992' }])
+    assert.equal((await request('?search=pao')).status, 503)
+  })
   it('lista com paginação, evidência de 20% e consulta individual', async () => {
     const response = await request('?status=active&page=2')
     assert.equal(response.status, 200)

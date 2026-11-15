@@ -1,4 +1,4 @@
-# Apoio ao desenvolvimento local. A aplicação roda com npm run dev.
+# PostgreSQL local. Para usar a aplicação com o guard local, execute build/preview.
 services:
   db:
     image: postgres:17-alpine

@@ -21,19 +21,19 @@ async function waitFor(event: string): Promise<void> {
   throw new Error(`Monitor não registrou ${event} no prazo esperado.`)
 }
 try {
-  await server.start(true, false)
+  await server.start()
   const health = await fetch(`${server.base}/api/health`)
   assert.equal(health.status, 200)
   assert.deepEqual(await health.json(), { status: 'ok' })
   const requestId = health.headers.get('x-request-id')
   assert.match(requestId ?? '', /^[a-f0-9-]{36}$/)
   const denied = await fetch(`${server.base}/api/products?token=CANARY_PRIVATE`, {
-    headers: { cookie: 'CANARY_PRIVATE', 'x-request-id': 'CANARY_PRIVATE' },
+    headers: { 'x-forwarded-for': 'CANARY_PRIVATE', 'x-request-id': 'CANARY_PRIVATE' },
   })
-  assert.equal(denied.status, 401)
+  assert.equal(denied.status, 403)
   assert.doesNotMatch(await denied.text(), /CANARY_PRIVATE|url|stack/)
-  assert.equal((await fetch(`${server.base}/`, { redirect: 'manual' })).status, 302)
-  assert.equal((await fetch(`${server.base}/entrar`)).status, 200)
+  assert.equal((await fetch(`${server.base}/`, { redirect: 'manual' })).status, 200)
+  assert.equal((await fetch(`${server.base}/entrar`)).status, 404)
   const missing = await fetch(`${server.base}/api/unknown-CANARY_PRIVATE?token=CANARY_PRIVATE`)
   assert.equal(missing.status, 404)
   const missingBody = object(await missing.json())
@@ -61,7 +61,7 @@ try {
   await waitFor('health.sample')
   await server.stop()
   await waitFor('health.alert')
-  await server.start(true, false)
+  await server.start()
   await waitFor('health.recovered')
   const monitorClosed = once(monitor, 'exit')
   monitor.kill('SIGTERM')
@@ -70,7 +70,7 @@ try {
   await server.stop()
   const unavailableDatabase = new URL(process.env.DATABASE_URL ?? '')
   unavailableDatabase.port = '1'
-  await server.start(true, false, unavailableDatabase.toString())
+  await server.start(true, unavailableDatabase.toString())
   const unhealthy = await fetch(`${server.base}/api/health?token=CANARY_PRIVATE`, {
     signal: AbortSignal.timeout(8000),
   })
@@ -93,7 +93,7 @@ try {
   )
   assert.ok(
     logs.some(
-      (log) => log.statusCode === 401 && log.resource === 'products' && log.level === 'warn',
+      (log) => log.statusCode === 403 && log.resource === 'products' && log.level === 'warn',
     ),
   )
   assert.ok(
@@ -113,9 +113,9 @@ try {
         verifiedAt: new Date().toISOString(),
         healthStatus: 200,
         databaseUnavailableStatus: 503,
-        unauthenticatedStatus: 401,
-        privatePageStatus: 302,
-        loginPageStatus: 200,
+        proxiedRequestStatus: 403,
+        homePageStatus: 200,
+        removedLoginStatus: 404,
         events,
       },
       null,
@@ -124,7 +124,7 @@ try {
     { mode: 0o600 },
   )
   console.log(
-    'PASS: HTTP/login, health com PostgreSQL real e 503 para banco indisponível, correlação e logs sem canários privados; monitor em processo separado detectou parada, emitiu alerta após três falhas e registrou recuperação após reinício.',
+    'PASS: HTTP sem login, health com PostgreSQL real e 503 para banco indisponível, correlação e logs sem canários privados; monitor em processo separado detectou parada, emitiu alerta após três falhas e registrou recuperação após reinício.',
   )
 } finally {
   if (monitor && monitor.exitCode === null && monitor.signalCode === null) {

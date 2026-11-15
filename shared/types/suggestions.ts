@@ -98,6 +98,21 @@ export type Suggestion = SuggestionBase &
         evidence: ComparisonEvidence
       }
   )
+export type AnalysisStatus =
+  | 'attention'
+  | 'no-alert'
+  | 'insufficient-data'
+  | 'partial'
+  | 'confirmation-required'
+  | 'open-period'
+
+export interface RuleAnalysis {
+  ruleId: Exclude<RuleId, 'BELOW_COST'>
+  title: string
+  status: AnalysisStatus
+  reason: string
+}
+
 export interface SuggestionReport {
   summary: PeriodSummary
   asOfDate: string
@@ -105,5 +120,6 @@ export interface SuggestionReport {
   previousPeriod: DatePeriod
   recordsComplete: boolean
   suggestions: Suggestion[]
+  analyses: RuleAnalysis[]
   notices: string[]
 }

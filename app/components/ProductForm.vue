@@ -1,18 +1,24 @@
 <script setup lang="ts">
   import { reactive, ref } from 'vue'
   import MoneyInput from './MoneyInput.vue'
+  import { watchFormChanges } from '../utils/form-changes'
   import { focusFirstInvalid } from '../utils/focus-form'
   import type { ProductInput } from '#shared/types/product'
   import { formatMoneyInput, parseCurrencyInput } from '#shared/utils/money'
 
-  const props = defineProps<{ initial?: ProductInput | null; busy?: boolean }>()
+  const props = defineProps<{ initial?: ProductInput | null; busy?: boolean; inDialog?: boolean }>()
   const formElement = ref<HTMLFormElement | null>(null)
-  const emit = defineEmits<{ submit: [input: ProductInput]; cancel: [] }>()
+  const emit = defineEmits<{
+    submit: [input: ProductInput]
+    cancel: []
+    'dirty-change': [dirty: boolean]
+  }>()
   const form = reactive({
     name: props.initial?.name ?? '',
     salePrice: props.initial ? formatMoneyInput(props.initial.salePriceCents) : '',
     unitCost: props.initial ? formatMoneyInput(props.initial.unitCostCents) : '',
   })
+  watchFormChanges(form, (dirty) => emit('dirty-change', dirty))
   const errors = reactive({ name: '', salePrice: '', unitCost: '' })
   async function submit(): Promise<void> {
     if (props.busy) {
@@ -52,7 +58,9 @@
       class="record-fields"
       :disabled="busy"
     >
-      <legend>{{ initial ? 'Editar produto' : 'Cadastrar produto' }}</legend>
+      <legend :class="{ 'sr-only': inDialog }">
+        {{ initial ? 'Editar produto' : 'Cadastrar produto' }}
+      </legend>
       <label for="product-name">Nome do produto</label>
       <input
         id="product-name"
@@ -118,17 +126,18 @@
         decimais ao sair; vazio não equivale a zero.
       </p>
       <div class="actions">
-        <button type="submit">
-          {{ busy ? 'Salvando…' : initial ? 'Salvar alterações' : 'Cadastrar produto' }}
-        </button>
         <button
-          v-if="initial"
+          v-if="initial || inDialog"
           type="button"
           class="secondary"
           data-testid="cancel-edit"
           @click="emit('cancel')"
         >
-          Cancelar edição
+          {{ initial ? 'Cancelar edição' : 'Cancelar' }}
+        </button>
+
+        <button type="submit">
+          {{ busy ? 'Salvando…' : initial ? 'Salvar alterações' : 'Cadastrar produto' }}
         </button>
       </div>
     </fieldset>
@@ -149,12 +158,6 @@
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 0.85rem;
-  }
-  @media (min-width: 74.01rem) {
-    .money-fields {
-      grid-template-columns: 1fr;
-      gap: 0;
-    }
   }
   @media (max-width: 36rem) {
     .money-fields {

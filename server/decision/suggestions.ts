@@ -4,16 +4,10 @@ import type {
   Suggestion,
   SuggestionReport,
 } from '../../shared/types/suggestions.ts'
+import { assessAnalyses } from './analysis-status.ts'
 import { calculateExpenseRevenuePercent, calculateGrossMarginPercent } from './metrics.ts'
 import { parseCivilDate } from '../../shared/utils/dates.ts'
-import {
-  belowCost,
-  expensePressure,
-  historicalLowMargin,
-  MINIMUM_PREVIOUS_REVENUE_CENTS,
-  MINIMUM_SALES,
-  salesDrop,
-} from './period-rules.ts'
+import { belowCost, expensePressure, historicalLowMargin, salesDrop } from './period-rules.ts'
 
 function timestamp(value: string): number {
   if (!parseCivilDate(value)) {
@@ -94,34 +88,6 @@ export function analyzeSuggestions(input: DecisionInput): SuggestionReport {
         suggestions.push(suggestion)
       }
     }
-    if (
-      input.products.some(
-        (product) => product.saleCount < MINIMUM_SALES || product.revenueCents === 0,
-      )
-    ) {
-      notices.push(
-        'Informações insuficientes para a margem de alguns produtos: são necessários receita positiva e pelo menos três registros de venda por produto no período.',
-      )
-    }
-    if (input.current.revenueCents === 0 || input.current.saleCount === 0) {
-      notices.push(
-        'Informações insuficientes para margem e pressão de despesas: registre vendas com receita positiva no período.',
-      )
-    }
-    if (!input.topExpense) {
-      notices.push(
-        'Sem despesas registradas no período; não há categoria para analisar pressão de despesas.',
-      )
-    }
-    if (
-      input.current.saleCount < MINIMUM_SALES ||
-      input.previous.saleCount < MINIMUM_SALES ||
-      input.previous.revenueCents < MINIMUM_PREVIOUS_REVENUE_CENTS
-    ) {
-      notices.push(
-        'Informações insuficientes para comparar receitas: são necessários três registros de venda em cada semana e receita anterior de pelo menos R$ 100,00.',
-      )
-    }
     const pressure = expensePressure(input, periods.current)
     const drop = salesDrop(input, periods.current, periods.previous)
     if (pressure) {
@@ -138,7 +104,8 @@ export function analyzeSuggestions(input: DecisionInput): SuggestionReport {
       priority[a.ruleId] - priority[b.ruleId] || (a.key < b.key ? -1 : a.key > b.key ? 1 : 0),
   )
   const unique = [...new Map(suggestions.map((item) => [item.key, item])).values()]
-  if (unique.length === 0 && notices.length === 0) {
+  const analyses = assessAnalyses(input, unique)
+  if (unique.length === 0 && analyses.every((analysis) => analysis.status === 'no-alert')) {
     notices.push(
       'Nenhum limiar experimental foi atingido. Isso não comprova saúde financeira ou lucro.',
     )
@@ -160,6 +127,7 @@ export function analyzeSuggestions(input: DecisionInput): SuggestionReport {
     previousPeriod: periods.previous,
     recordsComplete: input.recordsComplete,
     suggestions: unique,
+    analyses,
     notices,
   }
 }

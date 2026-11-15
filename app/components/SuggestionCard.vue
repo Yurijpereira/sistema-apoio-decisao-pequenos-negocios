@@ -2,9 +2,68 @@
   import { computed } from 'vue'
   import AppIcon from './AppIcon.vue'
   import type { Suggestion } from '#shared/types/suggestions'
+  import { recordsHref } from '../utils/analysis-context'
   import { formatCents } from '#shared/utils/money'
 
   const props = defineProps<{ suggestion: Suggestion; asOfDate: string }>()
+  const percent = (value: number): string =>
+    `${new Intl.NumberFormat('pt-BR', { maximumFractionDigits: 2 }).format(value)}%`
+  const explanation = computed<{ formula: string; criterion: string }>(() => {
+    const e = props.suggestion.evidence
+    if (e.basis === 'current-catalog') {
+      return {
+        formula: `Preço de ${formatCents(e.unitPriceCents)} ≤ custo de ${formatCents(e.unitCostCents)}.`,
+        criterion:
+          'O preço atual não supera o custo unitário cadastrado. Este aviso não descreve vendas antigas.',
+      }
+    }
+    if (e.basis === 'historical-sales') {
+      return {
+        formula:
+          e.grossMarginPercent === null
+            ? 'Margem indisponível: não há receita positiva para realizar a divisão.'
+            : `(${formatCents(e.revenueCents)} − ${formatCents(e.costCents)}) ÷ ${formatCents(e.revenueCents)} × 100 = ${percent(e.grossMarginPercent)}.`,
+        criterion: `Margem bruta estimada abaixo de ${percent(e.thresholdPercent)}, com pelo menos ${e.minimumSales} registros de venda do produto na semana.`,
+      }
+    }
+    if (e.basis === 'period-expenses') {
+      return {
+        formula: `${formatCents(e.expenseCents)} ÷ ${formatCents(e.revenueCents)} × 100 = ${percent(e.expenseRevenuePercent)}.`,
+        criterion: `Despesas iguais ou superiores a ${percent(e.thresholdPercent)} da receita registrada. Isso mede o peso das despesas, não seu crescimento entre semanas.`,
+      }
+    }
+    return {
+      formula: `(${formatCents(e.revenueCents)} − ${formatCents(e.previousRevenueCents)}) ÷ ${formatCents(e.previousRevenueCents)} × 100 = ${percent(e.revenueChangePercent)}.`,
+      criterion: `Queda de pelo menos ${percent(e.thresholdPercent)}, com no mínimo ${e.minimumSales} registros de venda em cada semana e receita anterior de ${formatCents(e.minimumPreviousRevenueCents)}.`,
+    }
+  })
+  const recordLinks = computed<{ label: string; href: string }[]>(() => {
+    const item = props.suggestion
+    if (!item.period) {
+      return [{ label: 'Conferir cadastro dos produtos', href: '/produtos' }]
+    }
+    if (item.ruleId === 'EXPENSE_PRESSURE') {
+      return [
+        {
+          label: 'Conferir despesas da semana',
+          href: recordsHref(item.period, item.period.to, 'expenses-title'),
+        },
+      ]
+    }
+    const links = [
+      {
+        label: 'Conferir vendas da semana',
+        href: recordsHref(item.period, item.period.to, 'sales-title'),
+      },
+    ]
+    if (item.ruleId === 'SALES_DROP') {
+      links.push({
+        label: 'Conferir vendas da semana anterior',
+        href: recordsHref(item.previousPeriod, item.period.to, 'sales-title'),
+      })
+    }
+    return links
+  })
   const evidence = computed(() => {
     const e = props.suggestion.evidence
     const rows: { label: string; value: string }[] = []
@@ -108,6 +167,15 @@
         <dd>{{ row.value }}</dd>
       </div>
     </dl>
+    <div class="insight-calculation">
+      <h4>Como chegamos a esta sugestão</h4>
+      <p class="calculation-formula">{{ explanation.formula }}</p>
+      <p class="help">{{ explanation.criterion }}</p>
+      <p class="help">
+        Percentuais exibidos com até duas casas decimais; o motor usa os valores exatos para
+        decidir.
+      </p>
+    </div>
     <p class="insight-action">
       <AppIcon name="arrow" />
       <span>
@@ -115,6 +183,20 @@
         {{ suggestion.action }}
       </span>
     </p>
+    <nav
+      class="actions insight-record-links"
+      aria-label="Conferir dados da sugestão"
+    >
+      <a
+        v-for="link in recordLinks"
+        :key="link.href"
+        :href="link.href"
+        class="secondary-link"
+      >
+        {{ link.label }}
+        <AppIcon name="arrow" />
+      </a>
+    </nav>
     <details>
       <summary>Limitações da análise</summary>
       <ul>
@@ -209,6 +291,31 @@
     font-weight: 600;
     font-size: 0.9rem;
     font-variant-numeric: tabular-nums;
+  }
+  .insight-calculation {
+    padding: 1rem 1.25rem;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    overflow-wrap: anywhere;
+  }
+  .insight-calculation h4 {
+    margin: 0 0 0.5rem;
+    color: var(--heading);
+    font-size: 0.9rem;
+  }
+  .calculation-formula {
+    margin: 0;
+    font-variant-numeric: tabular-nums;
+    font-size: 0.9rem;
+  }
+  .insight-calculation p:last-child {
+    margin-bottom: 0;
+  }
+  .insight-record-links {
+    margin-block: 1rem;
+  }
+  .insight-record-links a {
+    font-size: 0.8rem;
   }
   .insight-action {
     display: flex;

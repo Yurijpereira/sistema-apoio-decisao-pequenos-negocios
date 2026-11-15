@@ -4,8 +4,8 @@ import { randomUUID } from 'node:crypto'
 import { localTestServer, object, recordId } from './local-test-server.ts'
 import { getPrisma } from '../server/utils/prisma.ts'
 
-// Dados e sessão do usuário ficam fora do schema temporário deste teste.
-const { base, start, stop, cleanup, sessionCookie, api: request } = localTestServer(3102)
+// Dados do usuário ficam fora do schema temporário deste teste.
+const { base, start, stop, cleanup, api: request } = localTestServer(3102)
 const api = (path: string, method = 'GET', body?: unknown, expected = 200) =>
   request(`products${path}`, method, body, expected)
 const db = getPrisma()
@@ -20,7 +20,7 @@ try {
   console.log('PostgreSQL real conectado:', connected.database, connected.version.split(' on ')[0])
   await start()
   for (const path of ['/', '/produtos']) {
-    const response = await fetch(`${base}${path}`, { headers: { cookie: sessionCookie() } })
+    const response = await fetch(`${base}${path}`)
     assert.equal(response.status, 200)
     assert.match(await response.text(), /VisãoAtiva/)
   }
@@ -50,6 +50,59 @@ try {
   await api(`/${id}`, 'PATCH', { active: true })
   const zero = await api(`/${id}`, 'PUT', { ...input, salePriceCents: 0 })
   assert.equal(zero.grossMarginPercent, null)
+  const searchedId = randomUUID()
+  const inactiveId = randomUUID()
+  const literalId = randomUUID()
+  await db.product.createMany({
+    data: [
+      {
+        id: searchedId,
+        name: 'Pa\u0303o de Ac\u0327u\u0301car',
+        salePriceCents: 1000,
+        unitCostCents: 500,
+        createdAt: new Date('2020-01-01T00:00:00Z'),
+      },
+      {
+        id: inactiveId,
+        name: 'PÃO DE AÇÚCAR inativo',
+        salePriceCents: 1000,
+        unitCostCents: 500,
+        active: false,
+      },
+      { id: literalId, name: '100%_especial\\', salePriceCents: 1000, unitCostCents: 500 },
+      ...Array.from({ length: 23 }, (_, index) => ({
+        name: `Busca genérica ${index}`,
+        salePriceCents: 1000,
+        unitCostCents: 500,
+      })),
+    ],
+  })
+  const firstPage = await api('')
+  assert.ok(Array.isArray(firstPage.items))
+  assert.equal(firstPage.items.length, 20)
+  assert.ok(firstPage.items.every((item: unknown) => object(item).id !== searchedId))
+  const found = await api('?status=active&search=' + encodeURIComponent('  PAO de ACUCAR  '))
+  assert.equal(found.total, 1)
+  assert.ok(Array.isArray(found.items))
+  assert.equal(object(found.items[0]).id, searchedId)
+  const inactiveFound = await api('?status=inactive&search=pao')
+  assert.ok(Array.isArray(inactiveFound.items))
+  assert.equal(object(inactiveFound.items[0]).id, inactiveId)
+  const secondPage = await api('?search=genERICA&page=2')
+  assert.equal(secondPage.total, 23)
+  assert.ok(Array.isArray(secondPage.items))
+  assert.equal(secondPage.items.length, 3)
+  const literal = await api('?search=' + encodeURIComponent('%_'))
+  assert.equal(literal.total, 1)
+  assert.ok(Array.isArray(literal.items))
+  assert.equal(object(literal.items[0]).id, literalId)
+  assert.equal((await api('?search=' + encodeURIComponent("' OR 1=1 --"))).total, 0)
+  await api('?search=x&search=y', 'GET', undefined, 400)
+  await api('?search=' + encodeURIComponent('x'.repeat(121)), 'GET', undefined, 400)
+  await api('?search=' + encodeURIComponent('x\u0000'), 'GET', undefined, 400)
+  console.log(
+    'PASS: busca global por trecho, sem diferença de caixa/acentos, paginação e status; padrões literais e validações mantidos.',
+  )
   await api('', 'POST', { ...input, salePriceCents: -1 }, 400)
   await api('', 'POST', { ...input, salePriceCents: 2147483648 }, 400)
   await api(`/${randomUUID()}`, 'GET', undefined, 404)
@@ -76,6 +129,6 @@ try {
 } finally {
   await cleanup()
   console.log(
-    'Servidor encerrado; schema temporário e fixtures removidos, sem alterar os dados/sessão do banco principal.',
+    'Servidor encerrado; schema temporário e fixtures removidos, sem alterar os dados do banco principal.',
   )
 }

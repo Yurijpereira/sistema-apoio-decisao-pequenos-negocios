@@ -106,21 +106,27 @@ npm run build
 npm run preview -- --port 3000
 ```
 
-Acesse `http://127.0.0.1:3000/`. No primeiro acesso, configure e confirme a senha
-administrativa (15–128 caracteres); depois entre pela tela de login. A configuração
-é feita uma única vez e armazena somente o hash no PostgreSQL. Uma conta existente
-é preservada. `ADMIN_PASSWORD_HASH` permite provisionamento externo e tem
-precedência; se estiver configurado, a tela inicial de configuração fica bloqueada.
-O comando opcional `npm run admin:provision` cria uma credencial aleatória local;
-a recuperação explícita usa `-- --replace`. Não execute para entrar em conta existente.
-Login e APIs exigem acesso direto local; use build/preview, pois o proxy interno
+Acesse `http://127.0.0.1:3000/`. A página **Início** apresenta o sistema e orienta
+os primeiros passos. Pelo menu, acesse **Produtos**, **Vendas e despesas** e
+**Visão geral**, com os indicadores e as sugestões. Não há login ou configuração
+de conta; qualquer pessoa com acesso ao ambiente local pode usar o sistema.
+
+Páginas e APIs exigem acesso direto local; use build/preview, pois o proxy interno
 de `npm run dev` é rejeitado pela proteção atual. Não exponha por túnel ou proxy
 público. O sistema é um protótipo local; publicação e pendências de segurança
-continuam em aberto.
+continuam em aberto. As migrações históricas são preservadas para compatibilidade
+com bancos existentes, sem alterar os registros do negócio.
 
-Após entrar, use **Minha conta** no cabeçalho para alterar a senha, informando a senha
-atual e confirmando uma nova de 15–128 caracteres. A troca encerra a sessão e
-solicita novo login; não altera os registros do negócio.
+## Demonstração com dados fictícios
+
+Depois do build, execute `npm run demo` e abra
+`http://127.0.0.1:3001/sugestoes?to=2026-10-14`.
+O comando prepara um schema temporário no PostgreSQL, separado dos seus dados,
+com produtos, vendas e despesas fictícios. Confira e confirme os registros para
+consultar as sugestões. Cada cartão mostra o cálculo e permite conferir os
+registros do período; depois de corrigir uma operação, volte à análise e consulte
+novamente. A demonstração é uma simulação, sem comprovação de resultado real.
+Encerre com Ctrl+C para remover somente os dados temporários dessa execução.
 
 ## Qualidade
 

@@ -7,9 +7,9 @@ import observe from '../../server/middleware/00-observability.ts'
 import health from '../../server/api/health.get.ts'
 import errors from '../../server/error-handler.ts'
 import unknownApi from '../../server/api/[...path].ts'
-import pages from '../../server/middleware/admin-pages.ts'
+import pages from '../../server/middleware/local-pages.ts'
 
-const db = vi.hoisted(() => ({ $queryRaw: vi.fn(), adminAccount: { findUnique: vi.fn() } }))
+const db = vi.hoisted(() => ({ $queryRaw: vi.fn() }))
 vi.mock('../../server/utils/prisma.ts', () => ({ getPrisma: () => db }))
 const messages: string[] = []
 const server = createServer(
@@ -49,7 +49,6 @@ beforeEach(() => {
   messages.length = 0
   vi.spyOn(console, 'log').mockImplementation((value: unknown) => messages.push(String(value)))
   vi.stubEnv('LOCAL_PRODUCTS_ENABLED', 'true')
-  vi.stubEnv('ADMIN_PASSWORD_HASH', `scrypt:131072:8:1:${'a'.repeat(32)}:${'b'.repeat(128)}`)
   db.$queryRaw.mockResolvedValue([{ ok: 1 }])
 })
 
@@ -67,7 +66,6 @@ describe('saúde e observabilidade sem dados privados', () => {
     const response = await fetch(`${base}/api/health?token=PRIVADO`)
     assert.equal(response.status, 503)
     assert.doesNotMatch(await response.text(), /SEGREDO|PRIVADO|postgres|token/)
-    vi.stubEnv('ADMIN_PASSWORD_HASH', '')
     assert.equal((await fetch(`${base}/api/health`)).status, 503)
   })
   it('preserva restrições de loopback, flag e proxy antes da consulta de saúde', async () => {

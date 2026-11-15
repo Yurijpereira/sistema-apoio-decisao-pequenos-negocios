@@ -1,4 +1,4 @@
-// Autorização exercitada na suíte auth; esta suíte isola persistência e regras de negócio.
+// Exercita acesso local, validação e persistência sem autenticação.
 import assert from 'node:assert/strict'
 import { createServer } from 'node:http'
 import { once } from 'node:events'
@@ -26,7 +26,6 @@ const db = vi.hoisted(() => ({
   $transaction: vi.fn(),
   $queryRaw: vi.fn(),
 }))
-vi.mock('../../server/utils/admin-session.ts', () => ({ requireAdminSession: async () => {} }))
 vi.mock('../../server/utils/prisma.ts', () => ({ getPrisma: () => db }))
 const id = '9c324b81-4434-4e66-b57a-0eaac04b0806'
 const otherId = '9c324b81-4434-4e66-b57a-0eaac04b0807'

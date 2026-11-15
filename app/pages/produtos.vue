@@ -1,10 +1,17 @@
 <script setup lang="ts">
-  import { requestError } from '../utils/request-error'
-  import { computed, nextTick, onMounted, ref } from 'vue'
+  import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+  import AppModal from '../components/AppModal.vue'
+  import ConfirmDialog from '../components/ConfirmDialog.vue'
   import ProductForm from '../components/ProductForm.vue'
   import AppIcon from '../components/AppIcon.vue'
   import { formatCents } from '#shared/utils/money'
-  import type { ProductInput, ProductList, ProductStatus, ProductView } from '#shared/types/product'
+  import {
+    MAX_PRODUCT_SEARCH_LENGTH,
+    type ProductInput,
+    type ProductList,
+    type ProductStatus,
+    type ProductView,
+  } from '#shared/types/product'
 
   const result = ref<ProductList | null>(null)
   const loading = ref(true)
@@ -12,9 +19,18 @@
   const error = ref('')
   const feedback = ref('')
   const editing = ref<ProductView | null>(null)
-  const formVersion = ref(0)
+  const formOpen = ref(false)
+  const formDirty = ref(false)
+  const formModal = ref<InstanceType<typeof AppModal> | null>(null)
+  const modalError = ref('')
+  const statusTarget = ref<ProductView | null>(null)
   const page = ref(1)
   const status = ref<ProductStatus>('all')
+  const search = ref('')
+  let searchTimer: ReturnType<typeof setTimeout> | undefined
+  let requestController: AbortController | undefined
+  let requestVersion = 0
+  let disposed = false
   const busy = computed(() => loading.value || saving.value)
   const totalPages = computed(() =>
     Math.max(1, Math.ceil((result.value?.total ?? 0) / (result.value?.pageSize ?? 20))),
@@ -22,17 +38,31 @@
   const percent = new Intl.NumberFormat('pt-BR', { maximumFractionDigits: 2 })
 
   async function loadProducts(): Promise<void> {
+    clearTimeout(searchTimer)
+    requestController?.abort()
+    const current = ++requestVersion
+    const controller = new AbortController()
+    requestController = controller
     loading.value = true
     error.value = ''
     try {
-      result.value = await $fetch<ProductList>('/api/products', {
-        query: { page: page.value, status: status.value },
+      const data = await $fetch<ProductList>('/api/products', {
+        query: { page: page.value, status: status.value, search: search.value.trim() },
+        signal: controller.signal,
       })
-    } catch (cause: unknown) {
+      if (!disposed && current === requestVersion) {
+        result.value = data
+      }
+    } catch {
+      if (disposed || current !== requestVersion || controller.signal.aborted) {
+        return
+      }
       result.value = null
-      error.value = requestError(cause, 'Não foi possível carregar os produtos. Tente novamente.')
+      error.value = 'Não foi possível carregar os produtos. Tente novamente.'
     } finally {
-      loading.value = false
+      if (!disposed && current === requestVersion) {
+        loading.value = false
+      }
     }
   }
 
@@ -41,7 +71,7 @@
       return
     }
     saving.value = true
-    error.value = ''
+    modalError.value = ''
     feedback.value = ''
     const current = editing.value
     try {
@@ -49,40 +79,54 @@
         method: current ? 'PUT' : 'POST',
         body: input,
       })
-      editing.value = null
-      formVersion.value += 1
       feedback.value = current ? 'Produto atualizado.' : 'Produto cadastrado.'
       page.value = 1
       await loadProducts()
-    } catch (cause: unknown) {
-      error.value = requestError(
-        cause,
-        'Não foi possível salvar o produto. Seus dados foram mantidos; confira os valores e tente novamente.',
-      )
+      closeForm()
+    } catch {
+      modalError.value =
+        'Não foi possível salvar o produto. Seus dados foram mantidos; confira os valores e tente novamente.'
     } finally {
       saving.value = false
     }
   }
 
-  async function editProduct(product: ProductView): Promise<void> {
+  function openForm(product: ProductView | null = null): void {
+    if (busy.value || formOpen.value || statusTarget.value) {
+      return
+    }
     editing.value = product
-    error.value = ''
+    modalError.value = ''
     feedback.value = ''
-    await nextTick()
-    document.getElementById('product-name')?.focus()
+    formDirty.value = false
+    formOpen.value = true
   }
-
-  async function toggleProduct(product: ProductView): Promise<void> {
-    if (
-      busy.value ||
-      !window.confirm(
-        `${product.active ? 'Desativar' : 'Reativar'} o produto “${product.name}”? O cadastro será preservado.`,
-      )
-    ) {
+  function closeForm(): void {
+    formOpen.value = false
+    editing.value = null
+    formDirty.value = false
+    modalError.value = ''
+  }
+  function confirmStatus(product: ProductView): void {
+    if (busy.value || formOpen.value || statusTarget.value) {
+      return
+    }
+    modalError.value = ''
+    statusTarget.value = product
+  }
+  function closeStatus(): void {
+    if (!busy.value) {
+      statusTarget.value = null
+      modalError.value = ''
+    }
+  }
+  async function toggleProduct(): Promise<void> {
+    const product = statusTarget.value
+    if (busy.value || !product) {
       return
     }
     saving.value = true
-    error.value = ''
+    modalError.value = ''
     feedback.value = ''
     try {
       await $fetch(`/api/products/${product.id}`, {
@@ -96,8 +140,9 @@
         ? 'Produto desativado. Cadastro preservado.'
         : 'Produto reativado.'
       await loadProducts()
-    } catch (cause: unknown) {
-      error.value = requestError(cause, 'Não foi possível alterar o status. Tente novamente.')
+      statusTarget.value = null
+    } catch {
+      modalError.value = 'Não foi possível alterar o status. Tente novamente.'
     } finally {
       saving.value = false
     }
@@ -111,6 +156,24 @@
     page.value = 1
     await loadProducts()
   }
+  function searchNow(): void {
+    page.value = 1
+    void loadProducts()
+  }
+  watch(search, () => {
+    clearTimeout(searchTimer)
+    requestController?.abort()
+    requestVersion++
+    page.value = 1
+    loading.value = true
+    error.value = ''
+    searchTimer = setTimeout(() => void loadProducts(), 300)
+  })
+  onBeforeUnmount(() => {
+    disposed = true
+    clearTimeout(searchTimer)
+    requestController?.abort()
+  })
   onMounted(loadProducts)
 </script>
 
@@ -131,18 +194,28 @@
         >
           <a
             class="secondary-link"
-            href="/"
+            href="/sugestoes"
           >
             Ver sugestões
             <AppIcon name="arrow" />
           </a>
           <a
-            class="primary-link"
+            class="secondary-link"
             href="/registros"
           >
             <AppIcon name="plus" />
             Registrar operações
           </a>
+          <button
+            id="new-product"
+            type="button"
+            :disabled="busy"
+            aria-haspopup="dialog"
+            @click="openForm()"
+          >
+            <AppIcon name="plus" />
+            Novo produto
+          </button>
         </nav>
       </div>
       <p class="intro">
@@ -158,14 +231,6 @@
       class="error-banner"
     >
       {{ error }}
-      <a
-        v-if="error.includes('sessão')"
-        href="/entrar"
-        target="_blank"
-        rel="noopener"
-      >
-        Entrar em outra aba
-      </a>
     </p>
     <p
       v-if="feedback"
@@ -174,192 +239,261 @@
     >
       {{ feedback }}
     </p>
-    <div class="products-grid">
-      <section
-        class="panel product-form-panel"
-        aria-label="Cadastro de produto"
+    <section
+      class="panel products-panel"
+      aria-labelledby="list-title"
+      :aria-busy="loading"
+    >
+      <div class="list-heading">
+        <h2 id="list-title">Produtos cadastrados</h2>
+        <span
+          v-if="result"
+          class="count-badge"
+        >
+          {{ result.total }} no filtro
+        </span>
+      </div>
+      <form
+        class="product-search"
+        role="search"
+        aria-label="Buscar produtos"
+        @submit.prevent="searchNow"
       >
-        <ProductForm
-          :key="`${editing?.id ?? 'new'}:${formVersion}`"
-          :initial="editing"
-          :busy="busy"
-          @submit="saveProduct"
-          @cancel="editing = null"
-        />
-      </section>
-      <section
-        class="panel"
-        aria-labelledby="list-title"
-        :aria-busy="loading"
-      >
-        <div class="list-heading">
-          <h2 id="list-title">Produtos cadastrados</h2>
-          <span
-            v-if="result"
-            class="count-badge"
-          >
-            {{ result.total }} no filtro
-          </span>
-        </div>
-        <div class="toolbar">
-          <div class="filter-field">
-            <label for="product-status">Exibir</label>
-            <select
-              id="product-status"
-              v-model="status"
-              :disabled="busy"
-              @change="filterProducts"
-            >
-              <option value="all">Todos</option>
-              <option value="active">Ativos</option>
-              <option value="inactive">Inativos</option>
-            </select>
+        <label for="product-search">Buscar produto pelo nome</label>
+        <div class="search-controls">
+          <div class="search-input">
+            <AppIcon name="search" />
+            <input
+              id="product-search"
+              v-model="search"
+              type="search"
+              autocomplete="off"
+              :maxlength="MAX_PRODUCT_SEARCH_LENGTH"
+              :disabled="saving"
+              placeholder="Ex.: pão integral"
+              aria-describedby="product-search-help"
+            />
           </div>
           <button
+            type="submit"
+            class="secondary"
+            :disabled="saving"
+          >
+            Buscar
+          </button>
+          <button
+            v-if="search"
             type="button"
             class="secondary"
-            :disabled="busy"
-            data-testid="reload-products"
-            @click="loadProducts"
+            :disabled="saving"
+            @click="search = ''"
           >
-            <AppIcon name="refresh" />
-            Recarregar
+            Limpar busca
           </button>
         </div>
         <p
-          v-if="loading"
-          class="loading-state"
-          role="status"
+          id="product-search-help"
+          class="help"
         >
-          Carregando produtos…
+          A busca considera todos os produtos e aceita nomes sem acentos.
         </p>
-        <template v-else-if="result">
-          <p
-            v-if="result.items.length === 0"
-            class="empty-state"
+      </form>
+      <div class="toolbar">
+        <div class="filter-field">
+          <label for="product-status">Exibir</label>
+          <select
+            id="product-status"
+            v-model="status"
+            :disabled="saving"
+            @change="filterProducts"
           >
-            Nenhum produto nesta página ou filtro. Cadastre um produto ou altere a seleção.
-          </p>
-          <ul
-            v-else
-            class="product-list"
+            <option value="all">Todos</option>
+            <option value="active">Ativos</option>
+            <option value="inactive">Inativos</option>
+          </select>
+        </div>
+        <button
+          type="button"
+          class="secondary"
+          :disabled="busy"
+          data-testid="reload-products"
+          @click="loadProducts"
+        >
+          <AppIcon name="refresh" />
+          Recarregar
+        </button>
+      </div>
+      <p
+        v-if="loading"
+        class="loading-state"
+        role="status"
+      >
+        Carregando produtos…
+      </p>
+      <template v-else-if="result">
+        <p
+          v-if="result.items.length === 0"
+          class="empty-state"
+        >
+          {{
+            search.trim()
+              ? `Nenhum produto encontrado para “${search.trim()}”. Tente outro nome, limpe a busca ou altere o filtro.`
+              : 'Nenhum produto nesta página ou filtro. Cadastre um produto ou altere a seleção.'
+          }}
+        </p>
+        <ul
+          v-else
+          class="product-list"
+        >
+          <li
+            v-for="product in result.items"
+            :key="product.id"
+            class="product-card"
           >
-            <li
-              v-for="product in result.items"
-              :key="product.id"
-              class="product-card"
-            >
-              <div class="product-heading">
-                <h3>{{ product.name }}</h3>
-                <span
-                  class="badge"
-                  :class="{ 'badge-inactive': !product.active }"
-                >
-                  {{ product.active ? 'Ativo' : 'Inativo' }}
-                </span>
-              </div>
-              <dl>
-                <div>
-                  <dt>Preço de venda</dt>
-                  <dd>{{ formatCents(product.salePriceCents) }}</dd>
-                </div>
-                <div>
-                  <dt>Custo unitário estimado</dt>
-                  <dd>{{ formatCents(product.unitCostCents) }}</dd>
-                </div>
-                <div>
-                  <dt>Margem bruta estimada</dt>
-                  <dd>
-                    {{
-                      product.grossMarginPercent === null
-                        ? 'Indisponível: preço zero'
-                        : `${percent.format(product.grossMarginPercent)}%`
-                    }}
-                  </dd>
-                </div>
-              </dl>
-              <aside
-                v-if="product.lowMargin"
-                class="margin-notice"
-                :aria-label="`Aviso de cadastro de ${product.name}`"
+            <div class="product-heading">
+              <h3>{{ product.name }}</h3>
+              <span
+                class="badge"
+                :class="{ 'badge-inactive': !product.active }"
               >
-                <p>{{ product.lowMargin.reason }}</p>
-                <p>{{ product.lowMargin.action }}</p>
-                <ul>
-                  <li
-                    v-for="limitation in product.lowMargin.limitations"
-                    :key="limitation"
-                  >
-                    {{ limitation }}
-                  </li>
-                </ul>
-              </aside>
-              <div class="actions">
-                <button
-                  type="button"
-                  class="secondary"
-                  :disabled="busy"
-                  :aria-label="`Editar ${product.name}`"
-                  data-testid="edit-product"
-                  @click="editProduct(product)"
-                >
-                  Editar
-                </button>
-                <button
-                  type="button"
-                  class="secondary"
-                  :disabled="busy"
-                  :aria-label="`${product.active ? 'Desativar' : 'Reativar'} ${product.name}`"
-                  data-testid="toggle-product"
-                  @click="toggleProduct(product)"
-                >
-                  {{ product.active ? 'Desativar' : 'Reativar' }}
-                </button>
+                {{ product.active ? 'Ativo' : 'Inativo' }}
+              </span>
+            </div>
+            <dl>
+              <div>
+                <dt>Preço de venda</dt>
+                <dd>{{ formatCents(product.salePriceCents) }}</dd>
               </div>
-            </li>
-          </ul>
-          <nav
-            class="pagination"
-            aria-label="Páginas de produtos"
+              <div>
+                <dt>Custo unitário estimado</dt>
+                <dd>{{ formatCents(product.unitCostCents) }}</dd>
+              </div>
+              <div>
+                <dt>Margem bruta estimada</dt>
+                <dd>
+                  {{
+                    product.grossMarginPercent === null
+                      ? 'Indisponível: preço zero'
+                      : `${percent.format(product.grossMarginPercent)}%`
+                  }}
+                </dd>
+              </div>
+            </dl>
+            <aside
+              v-if="product.lowMargin"
+              class="margin-notice"
+              :aria-label="`Aviso de cadastro de ${product.name}`"
+            >
+              <p>{{ product.lowMargin.reason }}</p>
+              <p>{{ product.lowMargin.action }}</p>
+              <ul>
+                <li
+                  v-for="limitation in product.lowMargin.limitations"
+                  :key="limitation"
+                >
+                  {{ limitation }}
+                </li>
+              </ul>
+            </aside>
+            <div class="actions">
+              <button
+                type="button"
+                class="secondary"
+                :disabled="busy"
+                :aria-label="`Editar ${product.name}`"
+                data-testid="edit-product"
+                aria-haspopup="dialog"
+                @click="openForm(product)"
+              >
+                Editar
+              </button>
+              <button
+                type="button"
+                class="secondary"
+                :disabled="busy"
+                :aria-label="`${product.active ? 'Desativar' : 'Reativar'} ${product.name}`"
+                data-testid="toggle-product"
+                aria-haspopup="dialog"
+                @click="confirmStatus(product)"
+              >
+                {{ product.active ? 'Desativar' : 'Reativar' }}
+              </button>
+            </div>
+          </li>
+        </ul>
+        <nav
+          class="pagination"
+          aria-label="Páginas de produtos"
+        >
+          <button
+            type="button"
+            class="secondary"
+            :disabled="busy || page <= 1"
+            @click="changePage(page - 1)"
           >
-            <button
-              type="button"
-              class="secondary"
-              :disabled="busy || page <= 1"
-              @click="changePage(page - 1)"
-            >
-              Anterior
-            </button>
-            <span>Página {{ page }} de {{ totalPages }} · {{ result.total }} produto(s)</span>
-            <button
-              type="button"
-              class="secondary"
-              :disabled="busy || page >= totalPages"
-              @click="changePage(page + 1)"
-            >
-              Próxima
-            </button>
-          </nav>
-        </template>
-      </section>
-    </div>
+            Anterior
+          </button>
+          <span role="status">
+            Página {{ page }} de {{ totalPages }} · {{ result.total }} produto(s)
+          </span>
+          <button
+            type="button"
+            class="secondary"
+            :disabled="busy || page >= totalPages"
+            @click="changePage(page + 1)"
+          >
+            Próxima
+          </button>
+        </nav>
+      </template>
+    </section>
+    <AppModal
+      v-if="formOpen"
+      id="product-modal"
+      ref="formModal"
+      :title="editing ? 'Editar produto' : 'Novo produto'"
+      description="Informe o nome, o preço de venda e o custo unitário estimado."
+      initial-focus="#product-name"
+      fallback-focus="#new-product"
+      :busy="busy"
+      :dirty="formDirty"
+      :error="modalError"
+      @close="closeForm"
+    >
+      <ProductForm
+        :initial="editing"
+        :busy="busy"
+        in-dialog
+        @dirty-change="formDirty = $event"
+        @submit="saveProduct"
+        @cancel="formModal?.requestClose()"
+      />
+    </AppModal>
+    <ConfirmDialog
+      v-if="statusTarget"
+      id="product-status-modal"
+      :title="statusTarget.active ? 'Desativar produto?' : 'Reativar produto?'"
+      :description="
+        statusTarget.active
+          ? 'O produto deixará de aparecer nas novas vendas. O cadastro e as vendas anteriores serão preservados.'
+          : 'O produto voltará a ficar disponível para novas vendas. O histórico será preservado.'
+      "
+      :confirm-label="statusTarget.active ? 'Desativar produto' : 'Reativar produto'"
+      :busy="busy"
+      :error="modalError"
+      fallback-focus="#new-product"
+      @close="closeStatus"
+      @confirm="toggleProduct"
+    >
+      <p class="confirmation-subject">{{ statusTarget.name }}</p>
+    </ConfirmDialog>
   </main>
 </template>
 
 <style scoped>
-  .products-grid {
-    display: grid;
-    grid-template-columns: minmax(280px, 0.8fr) minmax(0, 1.6fr);
-    gap: 1.5rem;
-    align-items: start;
-  }
-  .products-grid > .panel {
+  .products-panel {
     margin-top: 0;
     min-width: 0;
-  }
-  .product-form-panel {
-    position: sticky;
-    top: 1.5rem;
   }
   .toolbar,
   .product-heading,
@@ -457,14 +591,6 @@
   .margin-notice ul {
     padding-left: 1.25rem;
     margin-bottom: 0;
-  }
-  @media (max-width: 74rem) {
-    .products-grid {
-      grid-template-columns: 1fr;
-    }
-    .product-form-panel {
-      position: static;
-    }
   }
   @media (max-width: 36rem) {
     dl {

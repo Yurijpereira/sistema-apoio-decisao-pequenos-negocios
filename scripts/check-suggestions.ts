@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto'
 import { getPrisma } from '../server/utils/prisma.ts'
 import { localTestServer, object, recordId } from './local-test-server.ts'
 
-const { base, start, stop, cleanup, sessionCookie, api } = localTestServer(3106)
+const { base, start, stop, cleanup, api } = localTestServer(3106)
 const db = getPrisma()
 const sales: string[] = []
 
@@ -26,7 +26,7 @@ try {
   assert.ok(year >= 2000, 'Nenhum intervalo sintético vazio disponível.')
   const to = `${year}-10-14`
   const query = `?to=${to}&recordsComplete=true`
-  const page = await fetch(`${base}/sugestoes`, { headers: { cookie: sessionCookie() } })
+  const page = await fetch(`${base}/sugestoes`)
   assert.equal(page.status, 200)
   assert.match(await page.text(), /<h1\b[^>]*id="suggestions-title"[^>]*>[^<]+<\/h1>/)
   const product = await api(
@@ -182,6 +182,6 @@ try {
 } finally {
   await cleanup()
   console.log(
-    'Servidor encerrado; schema temporário e fixtures removidos, sem alterar os dados/sessão do banco principal.',
+    'Servidor encerrado; schema temporário e fixtures removidos, sem alterar os dados do banco principal.',
   )
 }

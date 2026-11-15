@@ -2,7 +2,7 @@ import { send, setResponseHeaders, setResponseStatus, type H3Error, type H3Event
 
 const messages: Readonly<Record<number, string>> = {
   400: 'Solicitação inválida. Confira os dados.',
-  401: 'Entre com a conta administrativa.',
+  401: 'Acesso não autorizado.',
   403: 'Acesso não autorizado.',
   404: 'Recurso não encontrado.',
   405: 'Método não permitido.',

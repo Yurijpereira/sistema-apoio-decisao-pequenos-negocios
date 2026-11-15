@@ -63,10 +63,11 @@ describe('entrada de produtos', () => {
     }
   })
   it('limita paginação e aceita somente filtros conhecidos', () => {
-    assert.deepEqual(parseProductQuery({}), { page: 1, status: 'all' })
+    assert.deepEqual(parseProductQuery({}), { page: 1, status: 'all', search: '' })
     assert.deepEqual(parseProductQuery({ page: '2', status: 'inactive' }), {
       page: 2,
       status: 'inactive',
+      search: '',
     })
     assert.equal(parseProductQuery({ status: 'active' }).status, 'active')
     for (const invalid of [
@@ -78,6 +79,14 @@ describe('entrada de produtos', () => {
       { limit: '100000' },
     ]) {
       assert.throws(() => parseProductQuery(invalid))
+    }
+  })
+  it('normaliza a busca e rejeita tipos, controles e comprimentos inválidos', () => {
+    assert.equal(parseProductQuery({ search: '  Pão  ' }).search, 'Pão')
+    assert.equal(parseProductQuery({ search: '   ' }).search, '')
+    assert.equal(parseProductQuery({ search: "%_\\' OR 1=1" }).search, "%_\\' OR 1=1")
+    for (const search of [null, 1, ['pão'], {}, 'a'.repeat(121), 'pão\n', 'pão\u0000']) {
+      assert.throws(() => parseProductQuery({ search }))
     }
   })
 })

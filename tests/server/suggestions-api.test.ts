@@ -1,4 +1,4 @@
-// Autorização exercitada na suíte auth; esta suíte isola persistência e regras de negócio.
+// Exercita acesso local, validação e persistência sem autenticação.
 import assert from 'node:assert/strict'
 import { once } from 'node:events'
 import { createServer } from 'node:http'
@@ -8,7 +8,6 @@ import handler from '../../server/api/suggestions.get.ts'
 import { parseSuggestionQuery } from '../../server/validation/suggestions.ts'
 
 const db = vi.hoisted(() => ({ $transaction: vi.fn(), $queryRaw: vi.fn() }))
-vi.mock('../../server/utils/admin-session.ts', () => ({ requireAdminSession: async () => {} }))
 vi.mock('../../server/utils/prisma.ts', () => ({ getPrisma: () => db }))
 const server = createServer(toNodeListener(createApp().use('/api/suggestions', handler)))
 let base = ''
@@ -95,6 +94,10 @@ describe('entrada e API das sugestões', () => {
       ['BELOW_COST', 'LOW_MARGIN', 'EXPENSE_PRESSURE', 'SALES_DROP'],
     )
     assert.equal(data.suggestions[1].evidence.productName, 'Pão histórico')
+    assert.deepEqual(
+      data.analyses.map((analysis: { status: string }) => analysis.status),
+      ['attention', 'attention', 'attention'],
+    )
     assert.equal(db.$transaction.mock.calls[0]?.[1].isolationLevel, 'RepeatableRead')
     assert.equal(db.$queryRaw.mock.calls.length, 7)
     const sql = db.$queryRaw.mock.calls[4]?.[0]
@@ -106,6 +109,11 @@ describe('entrada e API das sugestões', () => {
     rows()
     const data = await (await fetch(`${base}/api/suggestions?to=2020-10-14`)).json()
     assert.equal(data.recordsComplete, false)
+    assert.ok(
+      data.analyses.every(
+        (analysis: { status: string }) => analysis.status === 'confirmation-required',
+      ),
+    )
     assert.deepEqual(
       data.suggestions.map((item: { ruleId: string }) => item.ruleId),
       ['BELOW_COST'],
@@ -115,7 +123,12 @@ describe('entrada e API das sugestões', () => {
     assert.ok(
       !missing.suggestions.some((item: { ruleId: string }) => item.ruleId === 'EXPENSE_PRESSURE'),
     )
-    assert.match(missing.notices.join(' '), /Sem despesas/)
+    assert.match(
+      missing.analyses.find(
+        (analysis: { ruleId: string }) => analysis.ruleId === 'EXPENSE_PRESSURE',
+      ).reason,
+      /Sem despesas/,
+    )
   })
   it('rejeita totais inseguros e mais de 100 grupos sem devolver análise parcial', async () => {
     rows({ revenue: '9007199254740992' })

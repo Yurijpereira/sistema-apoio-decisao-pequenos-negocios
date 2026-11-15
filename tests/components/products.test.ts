@@ -4,6 +4,9 @@ import { afterEach, describe, it, vi } from 'vitest'
 import ProductForm from '../../app/components/ProductForm.vue'
 import Products from '../../app/pages/produtos.vue'
 import type { ProductView } from '../../shared/types/product.ts'
+import { useDialogMocks } from './dialog-support'
+
+useDialogMocks()
 
 const product: ProductView = {
   id: '9c324b81-4434-4e66-b57a-0eaac04b0806',
@@ -32,6 +35,7 @@ const product: ProductView = {
   updatedAt: '',
 }
 afterEach(() => {
+  vi.useRealTimers()
   vi.unstubAllGlobals()
   vi.restoreAllMocks()
 })
@@ -67,6 +71,110 @@ describe('formulário de produto', () => {
 })
 
 describe('fluxo de produtos na interface', () => {
+  it('busca no catálogo, combina status, reinicia paginação e permite limpar', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    const api = vi.fn(
+      async (
+        _path: string,
+        options?: { query?: { page?: number; status?: string; search?: string } },
+      ) => ({ items: [product], total: 24, page: options?.query?.page ?? 1, pageSize: 20 }),
+    )
+    vi.stubGlobal('$fetch', api)
+    const wrapper = mount(Products)
+    await flushPromises()
+    assert.equal(wrapper.get('a.secondary-link').attributes('href'), '/sugestoes')
+    await wrapper.get('nav[aria-label="Páginas de produtos"] button:last-child').trigger('click')
+    await flushPromises()
+    assert.equal(api.mock.calls.at(-1)?.[1]?.query?.page, 2)
+    await wrapper.get('#product-search').setValue('pao')
+    await vi.advanceTimersByTimeAsync(300)
+    await flushPromises()
+    assert.deepEqual(api.mock.calls.at(-1)?.[1]?.query, { page: 1, status: 'all', search: 'pao' })
+    await wrapper.get('#product-status').setValue('inactive')
+    await flushPromises()
+    assert.deepEqual(api.mock.calls.at(-1)?.[1]?.query, {
+      page: 1,
+      status: 'inactive',
+      search: 'pao',
+    })
+    await wrapper.get('form[role="search"] button:last-child').trigger('click')
+    await vi.advanceTimersByTimeAsync(300)
+    await flushPromises()
+    assert.equal(api.mock.calls.at(-1)?.[1]?.query?.search, '')
+    assert.equal(wrapper.get<HTMLInputElement>('#product-search').element.value, '')
+    wrapper.unmount()
+  })
+  it('respostas antigas não substituem a busca mais recente', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    let finishOld: (value: unknown) => void = () => {
+      throw new Error('Busca não iniciada.')
+    }
+    const api = vi
+      .fn()
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            finishOld = resolve
+          }),
+      )
+      .mockResolvedValue({
+        items: [{ ...product, name: 'Resultado recente' }],
+        total: 1,
+        page: 1,
+        pageSize: 20,
+      })
+    vi.stubGlobal('$fetch', api)
+    const wrapper = mount(Products)
+    await wrapper.get('#product-search').setValue('recente')
+    await vi.advanceTimersByTimeAsync(300)
+    await flushPromises()
+    finishOld({ items: [product], total: 1, page: 1, pageSize: 20 })
+    await flushPromises()
+    assert.match(wrapper.get('.product-list').text(), /Resultado recente/)
+    assert.doesNotMatch(wrapper.get('.product-list').text(), /Pão teste/)
+    wrapper.unmount()
+  })
+  it('abre cadastro sob demanda e protege alterações até o descarte explícito', async () => {
+    const api = vi.fn().mockResolvedValue({ items: [], total: 0, page: 1, pageSize: 20 })
+    vi.stubGlobal('$fetch', api)
+    const wrapper = mount(Products)
+    await flushPromises()
+    assert.equal(wrapper.find('#product-name').exists(), false)
+    await wrapper.get('#new-product').trigger('click')
+    await wrapper.get('#product-name').setValue('Rascunho de pão')
+    await wrapper.get('.modal-close').trigger('click')
+    assert.match(wrapper.get('#product-modal-title').text(), /Descartar alterações/)
+    await wrapper.get('.discard-confirmation button:first-child').trigger('click')
+    assert.equal(wrapper.get<HTMLInputElement>('#product-name').element.value, 'Rascunho de pão')
+    await wrapper.get('.modal-close').trigger('click')
+    await wrapper.get('.discard-confirmation button:last-child').trigger('click')
+    assert.equal(wrapper.find('dialog').exists(), false)
+    assert.equal(api.mock.calls.length, 1)
+    await wrapper.get('#new-product').trigger('click')
+    assert.equal(wrapper.get<HTMLInputElement>('#product-name').element.value, '')
+    wrapper.unmount()
+  })
+  it('não repete gravação quando o produto foi salvo mas a recarga da lista falhou', async () => {
+    const api = vi
+      .fn()
+      .mockResolvedValueOnce({ items: [], total: 0, page: 1, pageSize: 20 })
+      .mockResolvedValueOnce(product)
+      .mockRejectedValueOnce(new Error('detalhes SQL privados'))
+    vi.stubGlobal('$fetch', api)
+    const wrapper = mount(Products)
+    await flushPromises()
+    await wrapper.get('#new-product').trigger('click')
+    await wrapper.get('#product-name').setValue('Pão')
+    await wrapper.get('#sale-price').setValue('10,00')
+    await wrapper.get('#unit-cost').setValue('8,00')
+    await wrapper.get('#product-modal form').trigger('submit')
+    await flushPromises()
+    assert.equal(wrapper.find('dialog').exists(), false)
+    assert.match(wrapper.get('[role="status"]').text(), /Produto cadastrado/)
+    assert.match(wrapper.get('[role="alert"]').text(), /Não foi possível carregar/)
+    assert.doesNotMatch(wrapper.text(), /detalhes SQL privados/)
+    wrapper.unmount()
+  })
   it('carrega lista, edita, recalcula após resposta e confirma desativação', async () => {
     let item: ProductView = { ...product }
     const api = vi.fn(
@@ -83,22 +191,22 @@ describe('fluxo de produtos na interface', () => {
       },
     )
     vi.stubGlobal('$fetch', api)
-    vi.stubGlobal(
-      'confirm',
-      vi.fn(() => true),
-    )
     const wrapper = mount(Products)
     await flushPromises()
     assert.match(wrapper.text(), /Pão teste/)
     assert.match(wrapper.text(), /25% experimental/)
     await wrapper.get('[data-testid="edit-product"]').trigger('click')
     await wrapper.get('#sale-price').setValue('20,00')
-    await wrapper.get('form').trigger('submit')
+    await wrapper.get('#product-modal form').trigger('submit')
     await flushPromises()
     assert.match(wrapper.text(), /Produto atualizado/)
     assert.match(wrapper.text(), /60%/)
     assert.doesNotMatch(wrapper.text(), /25% experimental/)
     await wrapper.get('[data-testid="toggle-product"]').trigger('click')
+    assert.equal(api.mock.calls.filter(([, options]) => options?.method === 'PATCH').length, 0)
+    await wrapper
+      .get('#product-status-modal .confirmation-actions button:last-child')
+      .trigger('click')
     await flushPromises()
     assert.match(wrapper.text(), /Inativo/)
     assert.equal(api.mock.calls.filter(([, options]) => options?.method === 'PATCH').length, 1)
@@ -107,15 +215,16 @@ describe('fluxo de produtos na interface', () => {
   it('não altera status ao cancelar a confirmação e mantém feedback de falha', async () => {
     const api = vi.fn().mockResolvedValue({ items: [product], total: 1, page: 1, pageSize: 20 })
     vi.stubGlobal('$fetch', api)
-    const confirm = vi.fn(() => false)
-    vi.stubGlobal('confirm', confirm)
     const wrapper = mount(Products)
     await flushPromises()
     await wrapper.get('[data-testid="toggle-product"]').trigger('click')
+    await wrapper.get('#product-status-modal .confirmation-cancel').trigger('click')
     assert.equal(api.mock.calls.length, 1)
-    confirm.mockReturnValue(true)
     api.mockRejectedValueOnce(new Error('falha privada'))
     await wrapper.get('[data-testid="toggle-product"]').trigger('click')
+    await wrapper
+      .get('#product-status-modal .confirmation-actions button:last-child')
+      .trigger('click')
     await flushPromises()
     assert.match(wrapper.get('[role="alert"]').text(), /Não foi possível alterar o status/)
     assert.match(wrapper.text(), /Ativo/)
@@ -134,15 +243,16 @@ describe('fluxo de produtos na interface', () => {
     await wrapper.get('[data-testid="reload-products"]').trigger('click')
     await flushPromises()
     assert.match(wrapper.text(), /Nenhum produto/)
+    await wrapper.get('#new-product').trigger('click')
     await wrapper.get('#product-name').setValue('Pão')
     await wrapper.get('#sale-price').setValue('10,00')
     await wrapper.get('#unit-cost').setValue('8,00')
     api.mockRejectedValueOnce(new Error('falha privada'))
-    await wrapper.get('form').trigger('submit')
+    await wrapper.get('#product-modal form').trigger('submit')
     await flushPromises()
     assert.match(wrapper.text(), /Não foi possível salvar/)
     assert.equal(wrapper.get<HTMLInputElement>('#product-name').element.value, 'Pão')
-    await wrapper.get('form').trigger('submit')
+    await wrapper.get('#product-modal form').trigger('submit')
     await flushPromises()
     assert.match(wrapper.text(), /Produto cadastrado/)
     wrapper.unmount()

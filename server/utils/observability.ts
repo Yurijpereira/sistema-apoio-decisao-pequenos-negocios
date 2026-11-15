@@ -14,9 +14,7 @@ declare module 'h3' {
 function resource(path: string): string {
   const first = path.split('?')[0]?.split('/')[2]
   return first &&
-    ['products', 'sales', 'expenses', 'suggestions', 'period-summary', 'auth', 'health'].includes(
-      first,
-    )
+    ['products', 'sales', 'expenses', 'suggestions', 'period-summary', 'health'].includes(first)
     ? first
     : path.startsWith('/api/')
       ? 'api.other'

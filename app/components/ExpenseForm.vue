@@ -1,20 +1,31 @@
 <script setup lang="ts">
   import { reactive, ref } from 'vue'
   import MoneyInput from './MoneyInput.vue'
+  import { watchFormChanges } from '../utils/form-changes'
   import { focusFirstInvalid } from '../utils/focus-form'
   import type { ExpenseInput, ExpenseView } from '#shared/types/operations'
   import { formatMoneyInput, parseCurrencyInput } from '#shared/utils/money'
   import { parseCivilDate } from '#shared/utils/dates'
 
-  const props = defineProps<{ initial?: ExpenseView | null; defaultDate: string; busy?: boolean }>()
+  const props = defineProps<{
+    initial?: ExpenseView | null
+    defaultDate: string
+    busy?: boolean
+    inDialog?: boolean
+  }>()
   const formElement = ref<HTMLFormElement | null>(null)
-  const emit = defineEmits<{ submit: [value: ExpenseInput]; cancel: [] }>()
+  const emit = defineEmits<{
+    submit: [value: ExpenseInput]
+    cancel: []
+    'dirty-change': [dirty: boolean]
+  }>()
   const form = reactive({
     date: props.initial?.date ?? props.defaultDate,
     category: props.initial?.category ?? '',
     description: props.initial?.description ?? '',
     amount: props.initial ? formatMoneyInput(props.initial.amountCents) : '',
   })
+  watchFormChanges(form, (dirty) => emit('dirty-change', dirty))
   const errors = reactive({ date: '', category: '', description: '', amount: '' })
   async function submit(): Promise<void> {
     if (props.busy) {
@@ -52,7 +63,9 @@
       :disabled="busy"
       class="record-fields"
     >
-      <legend>{{ initial ? 'Corrigir despesa' : 'Registrar despesa' }}</legend>
+      <legend :class="{ 'sr-only': inDialog }">
+        {{ initial ? 'Corrigir despesa' : 'Registrar despesa' }}
+      </legend>
       <label for="expense-date">Data da despesa</label>
       <input
         id="expense-date"
@@ -125,16 +138,17 @@
         são completadas ao sair. Zero deve ser informado explicitamente.
       </p>
       <div class="actions">
-        <button type="submit">
-          {{ busy ? 'Aguarde…' : initial ? 'Salvar correção da despesa' : 'Registrar despesa' }}
-        </button>
         <button
-          v-if="initial"
+          v-if="initial || inDialog"
           type="button"
           class="secondary"
           @click="emit('cancel')"
         >
-          Cancelar correção da despesa
+          {{ initial ? 'Cancelar correção da despesa' : 'Cancelar' }}
+        </button>
+
+        <button type="submit">
+          {{ busy ? 'Aguarde…' : initial ? 'Salvar correção da despesa' : 'Registrar despesa' }}
         </button>
       </div>
     </fieldset>

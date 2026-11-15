@@ -3,6 +3,7 @@ import type { LowMarginSuggestion } from '../../server/decision/rules.ts'
 /** Limite de INTEGER do PostgreSQL: R$ 21.474.836,47 por unidade. */
 export const MAX_PRODUCT_CENTS = 2_147_483_647
 export const PRODUCT_PAGE_SIZE = 20
+export const MAX_PRODUCT_SEARCH_LENGTH = 120
 
 export interface ProductInput {
   name: string
@@ -24,6 +25,7 @@ export type ProductStatus = 'all' | 'active' | 'inactive'
 export interface ProductQuery {
   page: number
   status: ProductStatus
+  search: string
 }
 
 export interface ProductList {

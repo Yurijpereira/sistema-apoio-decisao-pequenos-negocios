@@ -1,11 +1,11 @@
 <script setup lang="ts">
-  import { requestError } from '../utils/request-error'
   import AppIcon from '../components/AppIcon.vue'
+  import AppModal from '../components/AppModal.vue'
+  import ConfirmDialog from '../components/ConfirmDialog.vue'
   import { computed, nextTick, onMounted, reactive, ref } from 'vue'
   import SaleForm from '../components/SaleForm.vue'
   import ExpenseForm from '../components/ExpenseForm.vue'
   import RecordPagination from '../components/RecordPagination.vue'
-  import type { ProductList } from '#shared/types/product'
   import type {
     ExpenseInput,
     ExpenseView,
@@ -15,18 +15,21 @@
     SaleView,
   } from '#shared/types/operations'
   import { businessDate, parseCivilDate } from '#shared/utils/dates'
+  import { analysisDate, analysisHref, recordPeriod } from '../utils/analysis-context'
   import { formatCents } from '#shared/utils/money'
 
+  const route = useRoute()
+  const returnTo = analysisDate(route.query.analysisTo)
+  const requestedPeriod = recordPeriod(route.query)
   const draft = reactive({ from: '', to: '' })
   const period = ref({ from: '', to: '' })
+  const analysisLink = computed(() => analysisHref(returnTo ?? period.value.to))
   const defaultDate = ref('')
   const summary = ref<PeriodSummary | null>(null)
   const sales = ref<RecordList<SaleView> | null>(null)
   const expenses = ref<RecordList<ExpenseView> | null>(null)
-  const products = ref<ProductList | null>(null)
   const salePage = ref(1)
   const expensePage = ref(1)
-  const productPage = ref(1)
   const loading = ref(true)
   const saving = ref(false)
   const busy = computed(() => loading.value || saving.value)
@@ -34,8 +37,11 @@
   const feedback = ref('')
   const editingSale = ref<SaleView | null>(null)
   const editingExpense = ref<ExpenseView | null>(null)
-  const saleVersion = ref(0)
-  const expenseVersion = ref(0)
+  const recordKind = ref<'sales' | 'expenses' | null>(null)
+  const formDirty = ref(false)
+  const formModal = ref<InstanceType<typeof AppModal> | null>(null)
+  const modalError = ref('')
+  const deletingExpense = ref<ExpenseView | null>(null)
   const percent = new Intl.NumberFormat('pt-BR', { maximumFractionDigits: 2 })
   function displayPercent(value: number | null): string {
     return value === null ? 'Indisponível: receita zero' : `${percent.format(value)}%`
@@ -52,7 +58,7 @@
     loading.value = true
     error.value = ''
     try {
-      const [newSummary, newSales, newExpenses, newProducts] = await Promise.all([
+      const [newSummary, newSales, newExpenses] = await Promise.all([
         $fetch<PeriodSummary>('/api/period-summary', { query: period.value }),
         $fetch<RecordList<SaleView>>('/api/sales', {
           query: { ...period.value, page: salePage.value },
@@ -60,24 +66,18 @@
         $fetch<RecordList<ExpenseView>>('/api/expenses', {
           query: { ...period.value, page: expensePage.value },
         }),
-        $fetch<ProductList>('/api/products', {
-          query: { status: 'active', page: productPage.value },
-        }),
       ])
       summary.value = newSummary
       sales.value = newSales
       expenses.value = newExpenses
-      products.value = newProducts
     } catch (failure: unknown) {
       summary.value = null
       sales.value = null
       expenses.value = null
-      error.value = requestError(
-        failure,
+      error.value =
         statusCode(failure) === 422
           ? 'O período excede o limite seguro dos totais. Selecione um intervalo menor.'
-          : 'Não foi possível carregar os registros. Tente novamente.',
-      )
+          : 'Não foi possível carregar os registros. Tente novamente.'
     } finally {
       loading.value = false
     }
@@ -104,7 +104,7 @@
       return
     }
     saving.value = true
-    error.value = ''
+    modalError.value = ''
     feedback.value = ''
     const current = kind === 'sales' ? editingSale.value : editingExpense.value
     try {
@@ -113,12 +113,8 @@
         body: input,
       })
       if (kind === 'sales') {
-        editingSale.value = null
-        saleVersion.value += 1
         salePage.value = 1
       } else {
-        editingExpense.value = null
-        expenseVersion.value += 1
         expensePage.value = 1
       }
       feedback.value = `${kind === 'sales' ? 'Venda' : 'Despesa'} ${current ? 'corrigida' : 'registrada'}.`
@@ -126,28 +122,36 @@
         feedback.value += ' O registro está fora do período selecionado.'
       }
       await refresh()
+      closeForm()
     } catch (failure: unknown) {
-      error.value = requestError(
-        failure,
+      modalError.value =
         statusCode(failure) === 409
           ? 'O produto está indisponível para uma nova venda ou troca. Selecione um produto ativo; os dados digitados foram mantidos.'
-          : 'Não foi possível salvar. Os dados digitados foram mantidos; tente novamente.',
-      )
+          : 'Não foi possível salvar. Os dados digitados foram mantidos; tente novamente.'
     } finally {
       saving.value = false
     }
   }
-  async function removeExpense(expense: ExpenseView): Promise<void> {
-    if (
-      busy.value ||
-      !window.confirm(
-        `Remover a despesa de ${formatCents(expense.amountCents)} da categoria “${expense.category}”?`,
-      )
-    ) {
+  function confirmRemoval(expense: ExpenseView): void {
+    if (busy.value || recordKind.value || deletingExpense.value) {
+      return
+    }
+    modalError.value = ''
+    deletingExpense.value = expense
+  }
+  function closeRemoval(): void {
+    if (!busy.value) {
+      deletingExpense.value = null
+      modalError.value = ''
+    }
+  }
+  async function removeExpense(): Promise<void> {
+    const expense = deletingExpense.value
+    if (busy.value || !expense) {
       return
     }
     saving.value = true
-    error.value = ''
+    modalError.value = ''
     feedback.value = ''
     try {
       await $fetch(`/api/expenses/${expense.id}`, {
@@ -160,41 +164,70 @@
       expensePage.value = 1
       feedback.value = 'Despesa removida.'
       await refresh()
-    } catch (cause: unknown) {
-      error.value = requestError(cause, 'Não foi possível remover a despesa. Tente novamente.')
+      deletingExpense.value = null
+    } catch {
+      modalError.value = 'Não foi possível remover a despesa. Tente novamente.'
     } finally {
       saving.value = false
     }
   }
-  async function changePage(kind: 'sales' | 'expenses' | 'products', page: number): Promise<void> {
+  async function changePage(kind: 'sales' | 'expenses', page: number): Promise<void> {
     if (busy.value) {
       return
     }
     if (kind === 'sales') {
       salePage.value = page
-    } else if (kind === 'expenses') {
-      expensePage.value = page
     } else {
-      productPage.value = page
+      expensePage.value = page
     }
     await refresh()
   }
-  async function editSale(sale: SaleView): Promise<void> {
+  function openSale(sale: SaleView | null = null): void {
+    if (busy.value || recordKind.value || deletingExpense.value) {
+      return
+    }
     editingSale.value = sale
-    await nextTick()
-    document.getElementById('sale-product')?.focus()
+    formDirty.value = false
+    modalError.value = ''
+    feedback.value = ''
+    recordKind.value = 'sales'
   }
-  async function editExpense(expense: ExpenseView): Promise<void> {
+  function openExpense(expense: ExpenseView | null = null): void {
+    if (busy.value || recordKind.value || deletingExpense.value) {
+      return
+    }
     editingExpense.value = expense
-    await nextTick()
-    document.getElementById('expense-date')?.focus()
+    formDirty.value = false
+    modalError.value = ''
+    feedback.value = ''
+    recordKind.value = 'expenses'
+  }
+  function closeForm(): void {
+    recordKind.value = null
+    editingSale.value = null
+    editingExpense.value = null
+    formDirty.value = false
+    modalError.value = ''
   }
   onMounted(async () => {
     defaultDate.value = businessDate(new Date())
     draft.from = `${defaultDate.value.slice(0, 7)}-01`
     draft.to = defaultDate.value
+    if (route.query.from !== undefined || route.query.to !== undefined) {
+      if (!requestedPeriod) {
+        loading.value = false
+        error.value = 'O link contém um período inválido. Confira as datas e aplique o filtro.'
+        return
+      }
+      draft.from = requestedPeriod.from
+      draft.to = requestedPeriod.to
+    }
     period.value = { ...draft }
     await refresh()
+    if (requestedPeriod && ['#sales-title', '#expenses-title'].includes(route.hash)) {
+      await nextTick()
+      document.getElementById(route.hash.slice(1))?.focus()
+    }
   })
 </script>
 
@@ -209,13 +242,35 @@
       <p class="eyebrow">DADOS DO NEGÓCIO</p>
       <div class="heading-row">
         <h1 id="records-title">Vendas e despesas</h1>
-        <a
-          class="secondary-link"
-          href="/"
-        >
-          <AppIcon name="overview" />
-          Ver sugestões
-        </a>
+        <div class="actions">
+          <a
+            class="secondary-link"
+            :href="analysisLink"
+          >
+            {{ returnTo && requestedPeriod ? 'Voltar à análise' : 'Ver sugestões' }}
+          </a>
+          <button
+            id="new-expense"
+            type="button"
+            class="secondary"
+            :disabled="busy"
+            aria-haspopup="dialog"
+            @click="openExpense()"
+          >
+            <AppIcon name="plus" />
+            Nova despesa
+          </button>
+          <button
+            id="new-sale"
+            type="button"
+            :disabled="busy"
+            aria-haspopup="dialog"
+            @click="openSale()"
+          >
+            <AppIcon name="plus" />
+            Nova venda
+          </button>
+        </div>
       </div>
       <p class="intro">
         Registre as operações e confira os números do período, com preços e custos históricos das
@@ -225,8 +280,6 @@
         class="actions section-links"
         aria-label="Seções do sistema"
       >
-        <a href="#new-sale">Nova venda</a>
-        <a href="#new-expense">Nova despesa</a>
         <a href="#sales-title">Vendas do período</a>
         <a href="#expenses-title">Despesas do período</a>
         <a href="/produtos">Produtos</a>
@@ -288,14 +341,6 @@
       class="error-banner"
     >
       {{ error }}
-      <a
-        v-if="error.includes('sessão')"
-        href="/entrar"
-        target="_blank"
-        rel="noopener"
-      >
-        Entrar em outra aba
-      </a>
     </p>
     <p
       v-if="feedback"
@@ -347,66 +392,29 @@
       <p class="help">
         Totais de todos os registros do período, incluindo as páginas seguintes. A margem considera
         os custos guardados nas vendas; não representa lucro líquido. Para conferir recomendações,
-        <a href="/">abra a visão geral</a>
+        <a :href="analysisLink">abra a visão geral</a>
         .
       </p>
     </section>
-    <div
-      v-if="defaultDate"
-      class="record-forms"
+    <p
+      v-if="returnTo && requestedPeriod"
+      class="notice analysis-return"
+      role="status"
     >
-      <section
-        id="new-sale"
-        class="panel"
-        aria-label="Formulário de venda"
-      >
-        <SaleForm
-          :key="`${editingSale?.id ?? 'new'}:${saleVersion}`"
-          :products="products?.items ?? []"
-          :initial="editingSale"
-          :default-date="defaultDate"
-          :busy="busy"
-          @submit="saveRecord('sales', $event)"
-          @cancel="editingSale = null"
-        />
-        <p
-          v-if="products?.total === 0"
-          class="help"
-        >
-          Não há produtos ativos disponíveis.
-          <a href="/produtos">Cadastre ou reative um produto.</a>
-        </p>
-        <RecordPagination
-          v-if="products"
-          :page="productPage"
-          :total="products.total"
-          :page-size="products.pageSize"
-          label="Produtos disponíveis para venda"
-          :busy="busy"
-          @change="changePage('products', $event)"
-        />
-      </section>
-      <section
-        id="new-expense"
-        class="panel"
-        aria-label="Formulário de despesa"
-      >
-        <ExpenseForm
-          :key="`${editingExpense?.id ?? 'new'}:${expenseVersion}`"
-          :initial="editingExpense"
-          :default-date="defaultDate"
-          :busy="busy"
-          @submit="saveRecord('expenses', $event)"
-          @cancel="editingExpense = null"
-        />
-      </section>
-    </div>
+      Você está conferindo os registros usados na análise encerrada em {{ returnTo }}. Depois de
+      corrigir os dados, volte à análise, confira a confirmação e consulte novamente.
+    </p>
     <section
       class="panel"
       aria-labelledby="sales-title"
       :aria-busy="loading"
     >
-      <h2 id="sales-title">Vendas do período</h2>
+      <h2
+        id="sales-title"
+        tabindex="-1"
+      >
+        Vendas do período
+      </h2>
       <template v-if="sales && !loading">
         <p
           v-if="sales.items.length === 0"
@@ -438,7 +446,8 @@
               class="secondary"
               :aria-label="`Corrigir venda de ${sale.productNameSnapshot}`"
               :disabled="busy"
-              @click="editSale(sale)"
+              aria-haspopup="dialog"
+              @click="openSale(sale)"
             >
               Corrigir venda
             </button>
@@ -459,7 +468,12 @@
       aria-labelledby="expenses-title"
       :aria-busy="loading"
     >
-      <h2 id="expenses-title">Despesas do período</h2>
+      <h2
+        id="expenses-title"
+        tabindex="-1"
+      >
+        Despesas do período
+      </h2>
       <template v-if="expenses && !loading">
         <p
           v-if="expenses.items.length === 0"
@@ -485,7 +499,8 @@
                 class="secondary"
                 :aria-label="`Corrigir despesa de ${expense.category}`"
                 :disabled="busy"
-                @click="editExpense(expense)"
+                aria-haspopup="dialog"
+                @click="openExpense(expense)"
               >
                 Corrigir despesa
               </button>
@@ -494,7 +509,8 @@
                 class="secondary danger"
                 :aria-label="`Remover despesa de ${expense.category}`"
                 :disabled="busy"
-                @click="removeExpense(expense)"
+                aria-haspopup="dialog"
+                @click="confirmRemoval(expense)"
               >
                 Remover despesa
               </button>
@@ -511,12 +527,89 @@
         />
       </template>
     </section>
+    <AppModal
+      v-if="recordKind"
+      id="record-modal"
+      ref="formModal"
+      :title="
+        recordKind === 'sales'
+          ? editingSale
+            ? 'Corrigir venda'
+            : 'Nova venda'
+          : editingExpense
+            ? 'Corrigir despesa'
+            : 'Nova despesa'
+      "
+      :description="
+        recordKind === 'sales'
+          ? 'Registre a operação com o preço e o custo da venda. Os valores históricos serão preservados.'
+          : 'Informe a categoria, a data e o valor da despesa.'
+      "
+      :initial-focus="recordKind === 'sales' ? '#sale-product' : '#expense-category'"
+      :fallback-focus="recordKind === 'sales' ? '#new-sale' : '#new-expense'"
+      :busy="busy"
+      :dirty="formDirty"
+      :error="modalError"
+      @close="closeForm"
+    >
+      <section
+        v-if="recordKind === 'sales'"
+        aria-label="Formulário de venda"
+      >
+        <SaleForm
+          :initial="editingSale"
+          :default-date="defaultDate"
+          :busy="busy"
+          in-dialog
+          @dirty-change="formDirty = $event"
+          @submit="saveRecord('sales', $event)"
+          @cancel="formModal?.requestClose()"
+        />
+      </section>
+      <section
+        v-else
+        aria-label="Formulário de despesa"
+      >
+        <ExpenseForm
+          :initial="editingExpense"
+          :default-date="defaultDate"
+          :busy="busy"
+          in-dialog
+          @dirty-change="formDirty = $event"
+          @submit="saveRecord('expenses', $event)"
+          @cancel="formModal?.requestClose()"
+        />
+      </section>
+    </AppModal>
+    <ConfirmDialog
+      v-if="deletingExpense"
+      id="expense-delete-modal"
+      title="Remover despesa?"
+      description="A despesa será excluída e o resumo do período será atualizado. Esta ação não pode ser desfeita."
+      confirm-label="Remover despesa"
+      :busy="busy"
+      :error="modalError"
+      danger
+      fallback-focus="#new-expense"
+      @close="closeRemoval"
+      @confirm="removeExpense"
+    >
+      <p class="confirmation-subject">{{ deletingExpense.category }}</p>
+      <p class="help">
+        {{ deletingExpense.date }} · {{ formatCents(deletingExpense.amountCents) }}
+      </p>
+      <p
+        v-if="deletingExpense.description"
+        class="help"
+      >
+        {{ deletingExpense.description }}
+      </p>
+    </ConfirmDialog>
   </main>
 </template>
 
 <style scoped>
-  .period-fields,
-  .record-forms {
+  .period-fields {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 1.25rem;
@@ -524,9 +617,6 @@
   .period-fields {
     max-width: 44rem;
     margin-bottom: 1rem;
-  }
-  .record-forms .panel {
-    min-width: 0;
   }
   section[id],
   h2[id] {
@@ -578,10 +668,6 @@
     padding-bottom: 0;
   }
   @media (max-width: 64rem) {
-    .record-forms {
-      grid-template-columns: 1fr;
-      gap: 0;
-    }
     .summary-values {
       grid-template-columns: repeat(2, minmax(0, 1fr));
     }

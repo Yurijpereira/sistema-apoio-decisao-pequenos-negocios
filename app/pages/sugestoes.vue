@@ -1,16 +1,27 @@
 <script setup lang="ts">
-  import { requestError } from '../utils/request-error'
-  import { onMounted, reactive, ref } from 'vue'
+  import { computed, onMounted, reactive, ref } from 'vue'
+  import AnalysisStatus from '../components/AnalysisStatus.vue'
   import SuggestionCard from '../components/SuggestionCard.vue'
   import AppIcon from '../components/AppIcon.vue'
   import type { SuggestionReport } from '#shared/types/suggestions'
   import { formatCents } from '#shared/utils/money'
+  import { analysisDate } from '../utils/analysis-context'
   import { parseCivilDate } from '#shared/utils/dates'
 
+  const route = useRoute()
   const draft = reactive({ to: '', recordsComplete: false })
   const report = ref<SuggestionReport | null>(null)
   const loading = ref(false)
   const error = ref('')
+  const showNotices = computed(
+    () =>
+      report.value &&
+      report.value.notices.length > 0 &&
+      !report.value.analyses.every(
+        (analysis) =>
+          analysis.status === 'open-period' || analysis.status === 'confirmation-required',
+      ),
+  )
 
   function clearAnalysis(): void {
     report.value = null
@@ -41,19 +52,27 @@
         typeof cause === 'object' && cause !== null && 'statusCode' in cause
           ? cause.statusCode
           : null
-      error.value = requestError(
-        cause,
+      error.value =
         code === 422
           ? 'Análise indisponível: totais fora do limite seguro ou mais de 100 produtos na análise. Confira os registros e os limites da análise. Avisos de cadastro independem da semana. Nenhum resultado parcial é exibido.'
           : code === 400
             ? 'Confira a data: os dois períodos devem caber entre os anos 0001 e 9999.'
-            : 'Não foi possível consultar as sugestões. Tente novamente.',
-      )
+            : 'Não foi possível consultar as sugestões. Tente novamente.'
     } finally {
       loading.value = false
     }
   }
-  onMounted(load)
+  onMounted(() => {
+    if (route.query.to !== undefined) {
+      const to = analysisDate(route.query.to)
+      if (!to) {
+        error.value = 'O link contém uma data inválida. Escolha a semana que deseja analisar.'
+        return
+      }
+      draft.to = to
+    }
+    void load()
+  })
 </script>
 
 <template>
@@ -166,14 +185,6 @@
       role="alert"
     >
       {{ error }}
-      <a
-        v-if="error.includes('sessão')"
-        href="/entrar"
-        target="_blank"
-        rel="noopener"
-      >
-        Entrar em outra aba
-      </a>
     </p>
     <p
       v-if="loading"
@@ -215,13 +226,14 @@
             : 'sem confirmação de completude'
         }}. Datas inclusivas.
       </p>
+      <AnalysisStatus :analyses="report.analyses" />
       <p
         v-if="report.suggestions.length === 0"
         class="empty-state"
         data-testid="empty-suggestions"
       >
-        Nenhuma sugestão gerada nesta consulta. Confira os motivos abaixo; isso não comprova saúde
-        financeira.
+        Nenhuma sugestão gerada nesta consulta. Confira a situação das análises acima; isso não
+        comprova saúde financeira.
       </p>
       <SuggestionCard
         v-for="suggestion in report.suggestions"
@@ -230,7 +242,7 @@
         :as-of-date="report.asOfDate"
       />
       <aside
-        v-if="report.notices.length"
+        v-if="showNotices"
         class="panel analysis-notices"
         aria-labelledby="analysis-notices"
       >

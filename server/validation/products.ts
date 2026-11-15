@@ -1,5 +1,6 @@
 import { invalid, objectWithKeys, parseCents, parseId } from './common.ts'
 import type { ProductInput, ProductQuery } from '../../shared/types/product.ts'
+import { MAX_PRODUCT_SEARCH_LENGTH } from '../../shared/types/product.ts'
 
 export function parseProductInput(value: unknown): ProductInput {
   const input = objectWithKeys(value, ['name', 'salePriceCents', 'unitCostCents'])
@@ -30,14 +31,22 @@ export function parseProductStatus(value: unknown): { active: boolean } {
 }
 
 export function parseProductQuery(value: unknown): ProductQuery {
-  const query = objectWithKeys(value, ['page', 'status'])
+  const query = objectWithKeys(value, ['page', 'status', 'search'])
   const page = query.page ?? '1'
   const status = query.status ?? 'all'
+  const search = query.search === undefined ? '' : query.search
+  if (
+    typeof search !== 'string' ||
+    search.length > MAX_PRODUCT_SEARCH_LENGTH ||
+    /\p{Cc}/u.test(search)
+  ) {
+    invalid('A busca deve ter até 120 caracteres, sem caracteres de controle.')
+  }
   if (typeof page !== 'string' || !/^[1-9]\d{0,5}$/.test(page) || Number(page) > 100000) {
     invalid('Página inválida.')
   }
   if (status !== 'all' && status !== 'active' && status !== 'inactive') {
     invalid('Filtro de produtos inválido.')
   }
-  return { page: Number(page), status }
+  return { page: Number(page), status, search: search.trim() }
 }

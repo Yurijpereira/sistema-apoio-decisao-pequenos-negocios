@@ -1,7 +1,6 @@
 import assert from 'node:assert/strict'
-import { randomBytes, randomUUID } from 'node:crypto'
+import { randomUUID } from 'node:crypto'
 import { Prisma } from '../generated/prisma/client.ts'
-import { hashPassword } from '../server/utils/password.ts'
 import { getPrisma } from '../server/utils/prisma.ts'
 import { spawn, type ChildProcess } from 'node:child_process'
 import { once } from 'node:events'
@@ -29,9 +28,6 @@ export function localTestServer(port: number) {
   const schema = `visaoativa_test_${randomUUID().replaceAll('-', '')}`
   url.searchParams.set('schema', schema)
   process.env.DATABASE_URL = url.toString()
-  const password = randomBytes(24).toString('base64url')
-  let hash = ''
-  let cookie = ''
   let initialized = false
   let capturedOutput = ''
   const db = getPrisma()
@@ -48,7 +44,6 @@ export function localTestServer(port: number) {
     )
     const [code] = await once(migration, 'exit')
     assert.equal(code, 0, 'Falha ao migrar o schema temporário do teste.')
-    hash = await hashPassword(password)
     initialized = true
   }
   async function cleanup(): Promise<void> {
@@ -62,12 +57,7 @@ export function localTestServer(port: number) {
   }
   const base = `http://127.0.0.1:${port}`
   let child: ChildProcess | undefined
-  async function start(
-    enabled = true,
-    authenticate = true,
-    databaseUrl = process.env.DATABASE_URL,
-    adminPasswordHash?: string,
-  ): Promise<void> {
+  async function start(enabled = true, databaseUrl = process.env.DATABASE_URL): Promise<void> {
     await initialize()
     let output = ''
     child = spawn(process.execPath, ['.output/server/index.mjs'], {
@@ -77,7 +67,6 @@ export function localTestServer(port: number) {
         HOST: '127.0.0.1',
         PORT: String(port),
         LOCAL_PRODUCTS_ENABLED: String(enabled),
-        ADMIN_PASSWORD_HASH: adminPasswordHash ?? hash,
       },
       stdio: ['ignore', 'pipe', 'pipe'],
     })
@@ -94,9 +83,6 @@ export function localTestServer(port: number) {
         throw new Error(`O servidor de teste não iniciou. Confira a porta ${port} e o build.`)
       }
       if (output.includes('Listening on')) {
-        if (enabled && authenticate) {
-          await login()
-        }
         return
       }
       await setTimeout(100)
@@ -120,7 +106,7 @@ export function localTestServer(port: number) {
   ): Promise<Record<string, unknown>> {
     const response = await fetch(`${base}/api/${path}`, {
       method,
-      headers: { origin: base, 'content-type': 'application/json', cookie },
+      headers: { origin: base, 'content-type': 'application/json' },
       body: body === undefined ? undefined : JSON.stringify(body),
       signal: AbortSignal.timeout(10000),
     })
@@ -131,25 +117,12 @@ export function localTestServer(port: number) {
     const json: unknown = await response.json()
     return object(json)
   }
-  async function login(): Promise<void> {
-    const response = await fetch(`${base}/api/auth/login`, {
-      method: 'POST',
-      headers: { origin: base, 'content-type': 'application/json' },
-      body: JSON.stringify({ password }),
-      signal: AbortSignal.timeout(10000),
-    })
-    assert.equal(response.status, 200, 'Login sintético da integração')
-    cookie = response.headers.get('set-cookie')?.split(';')[0] ?? ''
-    assert.ok(cookie)
-  }
   return {
     base,
     start,
     stop,
     api,
     cleanup,
-    password,
-    sessionCookie: () => cookie,
     schema,
     output: () => capturedOutput,
   }

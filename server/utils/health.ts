@@ -1,5 +1,4 @@
 import { getPrisma } from './prisma.ts'
-import { requirePasswordHash } from './admin-account.ts'
 
 let pending: Promise<boolean> | undefined
 
@@ -9,7 +8,6 @@ export async function databaseReady(): Promise<boolean> {
     pending = Promise.resolve()
       .then(async () => {
         await getPrisma().$queryRaw`SELECT 1 AS ok`
-        await requirePasswordHash()
       })
       .then(
         () => true,

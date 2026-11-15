@@ -123,7 +123,9 @@ describe('motor integrado: testes escritos antes da implementação', () => {
     data.current = { revenueCents: 0, costCents: 0, quantity: 0, saleCount: 0, expenseCents: 65000 }
     data.previous.revenueCents = 0
     assert.equal(analyzeSuggestions(data).suggestions.length, 0)
-    assert.match(analyzeSuggestions(data).notices.join(' '), /insuficientes|insuficiente/)
+    assert.ok(
+      analyzeSuggestions(data).analyses.some((analysis) => analysis.status === 'insufficient-data'),
+    )
     data.current.revenueCents = 1000
     data.current.saleCount = 2
     data.previous.revenueCents = 9999
@@ -236,5 +238,87 @@ describe('motor integrado: testes escritos antes da implementação', () => {
       current: { from: '2025-12-31', to: '2026-01-06' },
       previous: { from: '2025-12-24', to: '2025-12-30' },
     })
+  })
+})
+
+describe('situação explícita das três análises', () => {
+  it('informa atenção somente quando a regra correspondente gerou sugestão', () => {
+    const result = analyzeSuggestions(input())
+    assert.deepEqual(
+      result.analyses.map(({ ruleId, status }) => ({ ruleId, status })),
+      [
+        { ruleId: 'LOW_MARGIN', status: 'attention' },
+        { ruleId: 'EXPENSE_PRESSURE', status: 'attention' },
+        { ruleId: 'SALES_DROP', status: 'attention' },
+      ],
+    )
+  })
+  it('distingue falta de confirmação de período aberto, com prioridade para a data', () => {
+    assert.ok(
+      analyzeSuggestions({ ...input(), recordsComplete: false }).analyses.every(
+        (item) => item.status === 'confirmation-required',
+      ),
+    )
+    const open = analyzeSuggestions({ ...input(), to: '2026-10-15', recordsComplete: false })
+    assert.ok(open.analyses.every((item) => item.status === 'open-period'))
+    assert.ok(open.suggestions.every((item) => item.ruleId === 'BELOW_COST'))
+  })
+  it('não confunde ausência de registros com critérios não atingidos', () => {
+    const data = input()
+    data.current = { revenueCents: 0, costCents: 0, expenseCents: 0, quantity: 0, saleCount: 0 }
+    data.previous = { ...data.current }
+    data.products = []
+    data.topExpense = null
+    data.belowCostProducts = []
+    const result = analyzeSuggestions(data)
+    assert.ok(result.analyses.every((item) => item.status === 'insufficient-data'))
+    assert.doesNotMatch(result.notices.join(' '), /Nenhum limiar experimental foi atingido/)
+    assert.match(result.analyses[2]?.reason ?? '', /0.*0.*3/)
+  })
+  it('informa análise parcial quando alguns produtos não têm base suficiente', () => {
+    const data = input()
+    assert.ok(data.products[0])
+    data.products[0].costCents = 2000
+    data.products.push({ ...data.products[0], productId: 'few', saleCount: 1 })
+    const result = analyzeSuggestions(data)
+    assert.equal(result.analyses[0]?.status, 'partial')
+    assert.match(result.analyses[0]?.reason ?? '', /1.*1/)
+    assert.ok(!result.suggestions.some((item) => item.ruleId === 'LOW_MARGIN'))
+    data.products[0].costCents = 2400
+    const withAlert = analyzeSuggestions(data)
+    assert.equal(withAlert.analyses[0]?.status, 'attention')
+    assert.match(withAlert.analyses[0]?.reason ?? '', /1.*base suficiente/)
+  })
+  it('mostra critérios não atingidos sem afirmar saúde financeira', () => {
+    const data = input()
+    data.belowCostProducts = []
+    data.current.revenueCents = 100000
+    data.current.expenseCents = 30000
+    assert.ok(data.products[0])
+    data.products[0].costCents = 2000
+    data.topExpense = { category: 'Energia', amountCents: 30000 }
+    const result = analyzeSuggestions(data)
+    assert.ok(result.analyses.every((item) => item.status === 'no-alert'))
+    assert.match(result.notices.join(' '), /não comprova saúde financeira/)
+  })
+  it('explica a falta de categoria e de base anterior mínima', () => {
+    const data = input()
+    data.topExpense = null
+    data.previous.revenueCents = 9999
+    const result = analyzeSuggestions(data)
+    assert.equal(result.analyses[1]?.status, 'insufficient-data')
+    assert.match(result.analyses[1]?.reason ?? '', /despesas registradas/)
+    assert.equal(result.analyses[2]?.status, 'insufficient-data')
+    assert.match(result.analyses[2]?.reason ?? '', /100,00/)
+  })
+  it('diferencia despesa zero registrada de ausência de despesas e mantém queda de 100% com três vendas', () => {
+    const data = input()
+    data.current.expenseCents = 0
+    data.topExpense = { category: 'Sem cobrança', amountCents: 0 }
+    assert.equal(analyzeSuggestions(data).analyses[1]?.status, 'no-alert')
+    data.current.revenueCents = 0
+    assert.equal(analyzeSuggestions(data).analyses[2]?.status, 'attention')
+    data.current.saleCount = 0
+    assert.equal(analyzeSuggestions(data).analyses[2]?.status, 'insufficient-data')
   })
 })

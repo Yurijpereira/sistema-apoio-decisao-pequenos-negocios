@@ -1,6 +1,8 @@
 <script setup lang="ts">
-  import { computed, reactive, ref } from 'vue'
+  import { computed, reactive, ref, watch } from 'vue'
+  import ProductPicker from './ProductPicker.vue'
   import MoneyInput from './MoneyInput.vue'
+  import { watchFormChanges } from '../utils/form-changes'
   import { focusFirstInvalid } from '../utils/focus-form'
   import type { ProductView } from '#shared/types/product'
   import { MAX_SALE_QUANTITY, type SaleInput, type SaleView } from '#shared/types/operations'
@@ -8,13 +10,17 @@
   import { parseCivilDate } from '#shared/utils/dates'
 
   const props = defineProps<{
-    products: ProductView[]
     initial?: SaleView | null
     defaultDate: string
     busy?: boolean
+    inDialog?: boolean
   }>()
   const formElement = ref<HTMLFormElement | null>(null)
-  const emit = defineEmits<{ submit: [value: SaleInput]; cancel: [] }>()
+  const emit = defineEmits<{
+    submit: [value: SaleInput]
+    cancel: []
+    'dirty-change': [dirty: boolean]
+  }>()
   const selected = ref<ProductView | null>(null)
   const form = reactive({
     productId: props.initial?.productId ?? '',
@@ -23,38 +29,36 @@
     price: props.initial ? formatMoneyInput(props.initial.unitPriceCents) : '',
     cost: props.initial ? formatMoneyInput(props.initial.unitCostCents) : '',
   })
-  const options = computed(() => {
-    const items: { id: string; name: string }[] = props.products.map((product) => ({
-      id: product.id,
-      name:
-        product.id === props.initial?.productId
-          ? `${props.initial.productNameSnapshot} (venda registrada)`
-          : product.name,
-    }))
-    if (selected.value && !items.some((item) => item.id === selected.value?.id)) {
-      items.unshift(selected.value)
-    }
-    if (props.initial && !items.some((item) => item.id === props.initial?.productId)) {
-      items.unshift({
-        id: props.initial.productId,
-        name: `${props.initial.productNameSnapshot} (venda registrada)`,
-      })
-    }
-    return items
+  const productPending = ref(false)
+  const formDirty = ref(false)
+  const selectedLabel = computed(() =>
+    form.productId === props.initial?.productId
+      ? `${props.initial.productNameSnapshot} (venda registrada)`
+      : (selected.value?.name ?? ''),
+  )
+  watchFormChanges(form, (dirty) => {
+    formDirty.value = dirty
+  })
+  watch([formDirty, productPending], ([dirty, pending]) => emit('dirty-change', dirty || pending), {
+    immediate: true,
   })
   const errors = reactive({ product: '', date: '', quantity: '', price: '', cost: '' })
-  function chooseProduct(): void {
-    const product =
-      props.products.find((item) => item.id === form.productId) ??
-      (selected.value?.id === form.productId ? selected.value : null)
-    if (product) {
-      selected.value = product
-      form.price = formatMoneyInput(product.salePriceCents)
-      form.cost = formatMoneyInput(product.unitCostCents)
-    } else if (props.initial?.productId === form.productId) {
-      form.price = formatMoneyInput(props.initial.unitPriceCents)
-      form.cost = formatMoneyInput(props.initial.unitCostCents)
+  function chooseProduct(product: ProductView): void {
+    productPending.value = false
+    errors.product = ''
+    if (form.productId === product.id) {
+      return
     }
+    selected.value = product
+    form.productId = product.id
+    const original = props.initial?.productId === product.id ? props.initial : null
+    form.price = formatMoneyInput(original?.unitPriceCents ?? product.salePriceCents)
+    form.cost = formatMoneyInput(original?.unitCostCents ?? product.unitCostCents)
+  }
+  function clearProduct(): void {
+    form.productId = ''
+    selected.value = null
+    productPending.value = false
   }
   async function submit(): Promise<void> {
     if (props.busy) {
@@ -63,7 +67,8 @@
     const price = parseCurrencyInput(form.price)
     const cost = parseCurrencyInput(form.cost)
     const quantity = Number(form.quantity)
-    errors.product = form.productId ? '' : 'Selecione um produto.'
+    errors.product =
+      form.productId && !productPending.value ? '' : 'Escolha um produto nos resultados da busca.'
     errors.date = parseCivilDate(form.date) ? '' : 'Informe uma data válida.'
     errors.quantity =
       /^[1-9]\d*$/.test(form.quantity) && quantity <= MAX_SALE_QUANTITY
@@ -96,24 +101,21 @@
       :disabled="busy"
       class="record-fields"
     >
-      <legend>{{ initial ? 'Corrigir venda' : 'Registrar venda' }}</legend>
+      <legend :class="{ 'sr-only': inDialog }">
+        {{ initial ? 'Corrigir venda' : 'Registrar venda' }}
+      </legend>
       <label for="sale-product">Produto</label>
-      <select
+      <ProductPicker
         id="sale-product"
-        v-model="form.productId"
-        :aria-invalid="Boolean(errors.product)"
-        :aria-describedby="errors.product ? 'sale-product-error' : undefined"
-        @change="chooseProduct"
-      >
-        <option value="">Selecione um produto</option>
-        <option
-          v-for="product in options"
-          :key="product.id"
-          :value="product.id"
-        >
-          {{ product.name }}
-        </option>
-      </select>
+        :selected-id="form.productId"
+        :selected-label="selectedLabel"
+        :disabled="busy"
+        :invalid="Boolean(errors.product)"
+        error-id="sale-product-error"
+        @select="chooseProduct"
+        @clear="clearProduct"
+        @pending-change="productPending = $event"
+      />
       <p
         v-if="errors.product"
         id="sale-product-error"
@@ -201,16 +203,17 @@
         até você alterá-los explicitamente. Trocar o produto preenche os valores do novo cadastro.
       </p>
       <div class="actions">
-        <button type="submit">
-          {{ busy ? 'Aguarde…' : initial ? 'Salvar correção da venda' : 'Registrar venda' }}
-        </button>
         <button
-          v-if="initial"
+          v-if="initial || inDialog"
           type="button"
           class="secondary"
           @click="emit('cancel')"
         >
-          Cancelar correção da venda
+          {{ initial ? 'Cancelar correção da venda' : 'Cancelar' }}
+        </button>
+
+        <button type="submit">
+          {{ busy ? 'Aguarde…' : initial ? 'Salvar correção da venda' : 'Registrar venda' }}
         </button>
       </div>
     </fieldset>

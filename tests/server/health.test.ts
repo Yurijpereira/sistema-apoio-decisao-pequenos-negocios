@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { afterEach, it, vi } from 'vitest'
 import { databaseReady } from '../../server/utils/health.ts'
 
-const db = vi.hoisted(() => ({ $queryRaw: vi.fn(), adminAccount: { findUnique: vi.fn() } }))
+const db = vi.hoisted(() => ({ $queryRaw: vi.fn() }))
 vi.mock('../../server/utils/prisma.ts', () => ({ getPrisma: () => db }))
 afterEach(() => {
   vi.useRealTimers()
@@ -10,7 +10,6 @@ afterEach(() => {
 })
 
 it('limita espera a 3s, compartilha consulta pendente e permite recuperação', async () => {
-  vi.stubEnv('ADMIN_PASSWORD_HASH', `scrypt:131072:8:1:${'a'.repeat(32)}:${'b'.repeat(128)}`)
   vi.useFakeTimers()
   let resolve: (value: unknown) => void = () => {}
   db.$queryRaw.mockImplementationOnce(

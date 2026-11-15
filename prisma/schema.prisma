@@ -50,7 +50,8 @@ model Expense {
   @@index([date, id])
 }
 
-// Credencial única criada no primeiro acesso; o ambiente pode fornecer uma credencial externa.
+// Tabelas legadas preservadas por compatibilidade com as migrações e backups.
+// A aplicação não utiliza contas ou sessões.
 model AdminAccount {
   id                     Int      @id @default(1)
   passwordHash           String   @db.VarChar(180)
@@ -58,7 +59,7 @@ model AdminAccount {
   createdAt              DateTime @default(now()) @db.Timestamptz(3)
 }
 
-// Uma sessão ativa por vez.
+// Sessão legada, sem uso na aplicação.
 model AdminSession {
   id                    Int      @id @default(1)
   tokenHash             String   @unique @db.Char(64)

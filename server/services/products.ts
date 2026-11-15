@@ -1,6 +1,8 @@
 import { databaseOperation } from '../utils/database-operation.ts'
 import { createError } from 'h3'
 import type { Product } from '../../generated/prisma/client.ts'
+import { Prisma } from '../../generated/prisma/client.ts'
+import { databaseTable } from '../utils/sql-table.ts'
 import {
   PRODUCT_PAGE_SIZE,
   type ProductInput,
@@ -31,6 +33,32 @@ function toProductView(product: Product): ProductView {
 export async function listProducts(query: ProductQuery): Promise<ProductList> {
   const { items, total } = await databaseOperation(async () => {
     const db = getPrisma()
+    if (query.search) {
+      // Normalização latina nativa do PostgreSQL, sem extensão ou alteração dos nomes.
+      // strpos trata %, _ e aspas como texto literal, nunca como padrões ou SQL.
+      const filter = Prisma.sql`WHERE
+        (${query.status} = 'all' OR "active" = ${query.status === 'active'})
+        AND strpos(
+          regexp_replace(normalize(lower("name"), NFD), ${'[\u0300-\u036f]'}, '', 'g'),
+          regexp_replace(normalize(lower(${query.search}::text), NFD), ${'[\u0300-\u036f]'}, '', 'g')
+        ) > 0`
+      const [items, counts] = await Promise.all([
+        db.$queryRaw<
+          Product[]
+        >`SELECT "id", "name", "salePriceCents", "unitCostCents", "active", "createdAt", "updatedAt"
+          FROM ${databaseTable('Product')} ${filter}
+          ORDER BY "createdAt" DESC, "id" DESC
+          LIMIT ${PRODUCT_PAGE_SIZE} OFFSET ${(query.page - 1) * PRODUCT_PAGE_SIZE}`,
+        db.$queryRaw<
+          { total: string }[]
+        >`SELECT COUNT(*)::text AS total FROM ${databaseTable('Product')} ${filter}`,
+      ])
+      const total = Number(counts[0]?.total ?? '0')
+      if (!Number.isSafeInteger(total) || total < 0) {
+        throw new Error('Contagem de produtos inválida.')
+      }
+      return { items, total }
+    }
     const where = query.status === 'all' ? {} : { active: query.status === 'active' }
     const [items, total] = await Promise.all([
       db.product.findMany({
