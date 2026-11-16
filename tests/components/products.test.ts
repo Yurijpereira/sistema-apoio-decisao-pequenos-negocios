@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { flushPromises, mount } from '@vue/test-utils'
-import { afterEach, describe, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, it, vi } from 'vitest'
 import ProductForm from '../../app/components/ProductForm.vue'
 import Products from '../../app/pages/produtos.vue'
 import type { ProductView } from '../../shared/types/product.ts'
@@ -34,6 +34,9 @@ const product: ProductView = {
   createdAt: '',
   updatedAt: '',
 }
+beforeEach(() => {
+  vi.stubGlobal('useRoute', () => ({ query: {} }))
+})
 afterEach(() => {
   vi.useRealTimers()
   vi.unstubAllGlobals()
@@ -71,6 +74,50 @@ describe('formulário de produto', () => {
 })
 
 describe('fluxo de produtos na interface', () => {
+  it('retorna à mesma análise após editar o cadastro sem enviar contexto à API', async () => {
+    vi.stubGlobal('useRoute', () => ({
+      query: { analysisTo: '2026-10-14', recordsComplete: 'true' },
+    }))
+    const api = vi.fn().mockResolvedValue({ items: [product], total: 1, page: 1, pageSize: 20 })
+    vi.stubGlobal('$fetch', api)
+    const wrapper = mount(Products)
+    await flushPromises()
+    const link = wrapper.get('a.secondary-link')
+    assert.equal(link.text(), 'Voltar à análise')
+    assert.equal(link.attributes('href'), '/sugestoes?to=2026-10-14')
+    await wrapper.get('button[aria-label="Editar Pão teste"]').trigger('click')
+    await wrapper.get('#sale-price').setValue('12,00')
+    await wrapper.get('#product-modal form').trigger('submit')
+    await flushPromises()
+    assert.equal(link.attributes('href'), '/sugestoes?to=2026-10-14')
+    assert.deepEqual(api.mock.calls[1], [
+      `/api/products/${product.id}`,
+      { method: 'PUT', body: { name: 'Pão teste', salePriceCents: 1200, unitCostCents: 800 } },
+    ])
+    assert.deepEqual(api.mock.calls.at(-1)?.[1].query, { page: 1, status: 'all', search: '' })
+    wrapper.unmount()
+  })
+  it('ignora contexto inválido ou duplicado e mantém o acesso normal às sugestões', async () => {
+    vi.stubGlobal(
+      '$fetch',
+      vi.fn().mockResolvedValue({ items: [], total: 0, page: 1, pageSize: 20 }),
+    )
+    for (const analysisTo of [
+      undefined,
+      ['2026-10-14', '2026-10-15'],
+      '//evil.example',
+      '2026-02-30',
+      '0001-01-13',
+    ]) {
+      vi.stubGlobal('useRoute', () => ({ query: { analysisTo } }))
+      const wrapper = mount(Products)
+      await flushPromises()
+      const link = wrapper.get('a.secondary-link')
+      assert.equal(link.text(), 'Ver sugestões')
+      assert.equal(link.attributes('href'), '/sugestoes')
+      wrapper.unmount()
+    }
+  })
   it('busca no catálogo, combina status, reinicia paginação e permite limpar', async () => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
     const api = vi.fn(

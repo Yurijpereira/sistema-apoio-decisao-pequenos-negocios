@@ -320,6 +320,7 @@
         :key="suggestion.key"
         :suggestion="suggestion"
         :as-of-date="report.asOfDate"
+        :analysis-to="report.period.to"
       />
       <aside
         v-if="showNotices"

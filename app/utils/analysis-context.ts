@@ -17,6 +17,11 @@ export function analysisHref(to: string): string {
   return date ? `/sugestoes?${new URLSearchParams({ to: date })}` : '/sugestoes'
 }
 
+export function productsHref(analysisTo: string): string {
+  const date = analysisDate(analysisTo)
+  return date ? `/produtos?${new URLSearchParams({ analysisTo: date })}` : '/produtos'
+}
+
 export function recordsHref(
   period: DatePeriod,
   analysisTo: string,

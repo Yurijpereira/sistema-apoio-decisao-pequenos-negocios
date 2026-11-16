@@ -89,7 +89,9 @@ describe('sugestões com evidência e abstenção', () => {
   it('apresenta evidência histórica, período, ação e limitações sem renderizar HTML de nomes', () => {
     const item = report().suggestions[0]
     assert.ok(item)
-    const wrapper = mount(SuggestionCard, { props: { suggestion: item, asOfDate: '2026-10-15' } })
+    const wrapper = mount(SuggestionCard, {
+      props: { suggestion: item, asOfDate: '2026-10-15', analysisTo: '2026-10-14' },
+    })
     assert.match(wrapper.text(), /2026-10-08 a 2026-10-14/)
     assert.match(wrapper.text(), /30,00/)
     assert.match(wrapper.text(), /24,00/)
@@ -103,6 +105,7 @@ describe('sugestões com evidência e abstenção', () => {
     const wrapper = mount(SuggestionCard, {
       props: {
         asOfDate: '2026-10-15',
+        analysisTo: '2026-10-07',
         suggestion: {
           key: 'BELOW_COST:p',
           title: 'Cadastro atual',
@@ -124,6 +127,7 @@ describe('sugestões com evidência e abstenção', () => {
       },
     })
     assert.match(wrapper.text(), /Prioridade alta/)
+    assert.equal(wrapper.get('nav a').attributes('href'), '/produtos?analysisTo=2026-10-07')
     assert.match(wrapper.text(), /Cadastro atual consultado em 2026-10-15/)
     assert.match(wrapper.text(), /Indisponível/)
     assert.match(wrapper.text(), /6,00/)
@@ -170,7 +174,9 @@ describe('sugestões com evidência e abstenção', () => {
       },
     ]
     for (const item of items) {
-      const wrapper = mount(SuggestionCard, { props: { suggestion: item, asOfDate: '2026-10-15' } })
+      const wrapper = mount(SuggestionCard, {
+        props: { suggestion: item, asOfDate: '2026-10-15', analysisTo: '2026-10-14' },
+      })
       if (item.ruleId === 'EXPENSE_PRESSURE') {
         assert.match(wrapper.text(), /Energia: R\$\s650,00/)
         assert.match(wrapper.get('.calculation-formula').text(), /650,00.*1\.000,00.*65%/)
@@ -272,7 +278,9 @@ describe('percurso entre sugestão e seus registros', () => {
   it('mostra a conta com os valores históricos e leva ao período correto', () => {
     const item = report().suggestions[0]
     assert.ok(item)
-    const wrapper = mount(SuggestionCard, { props: { suggestion: item, asOfDate: '2026-10-15' } })
+    const wrapper = mount(SuggestionCard, {
+      props: { suggestion: item, asOfDate: '2026-10-15', analysisTo: '2026-10-14' },
+    })
     const calculation = wrapper.get('.insight-calculation')
     assert.match(calculation.text(), /Como chegamos/)
     assert.match(calculation.text(), /30,00.*−.*24,00.*÷.*30,00.*100.*20%/)

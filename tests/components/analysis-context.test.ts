@@ -3,6 +3,7 @@ import { describe, it } from 'vitest'
 import {
   analysisDate,
   analysisHref,
+  productsHref,
   recordPeriod,
   recordsHref,
 } from '../../app/utils/analysis-context'
@@ -42,5 +43,11 @@ describe('contexto seguro entre sugestão e registros', () => {
     )
     assert.equal(analysisHref('2026-10-14'), '/sugestoes?to=2026-10-14')
     assert.equal(analysisHref('invalid'), '/sugestoes')
+  })
+  it('inclui somente a data validada no acesso ao cadastro, sem confirmar registros', () => {
+    assert.equal(productsHref('2026-10-14'), '/produtos?analysisTo=2026-10-14')
+    for (const to of ['2026-02-30', '//evil.example', '2026-10-14&recordsComplete=true']) {
+      assert.equal(productsHref(to), '/produtos')
+    }
   })
 })

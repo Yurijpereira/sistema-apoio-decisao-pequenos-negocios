@@ -4,6 +4,7 @@
   import ConfirmDialog from '../components/ConfirmDialog.vue'
   import ProductForm from '../components/ProductForm.vue'
   import AppIcon from '../components/AppIcon.vue'
+  import { analysisDate, analysisHref } from '../utils/analysis-context'
   import { formatCents } from '#shared/utils/money'
   import {
     MAX_PRODUCT_SEARCH_LENGTH,
@@ -13,6 +14,9 @@
     type ProductView,
   } from '#shared/types/product'
 
+  const route = useRoute()
+  const returnTo = analysisDate(route.query.analysisTo)
+  const analysisLink = returnTo ? analysisHref(returnTo) : '/sugestoes'
   const result = ref<ProductList | null>(null)
   const loading = ref(true)
   const saving = ref(false)
@@ -194,9 +198,9 @@
         >
           <a
             class="secondary-link"
-            href="/sugestoes"
+            :href="analysisLink"
           >
-            Ver sugestões
+            {{ returnTo ? 'Voltar à análise' : 'Ver sugestões' }}
             <AppIcon name="arrow" />
           </a>
           <a

@@ -2,10 +2,10 @@
   import { computed } from 'vue'
   import AppIcon from './AppIcon.vue'
   import type { Suggestion } from '#shared/types/suggestions'
-  import { recordsHref } from '../utils/analysis-context'
+  import { productsHref, recordsHref } from '../utils/analysis-context'
   import { formatCents } from '#shared/utils/money'
 
-  const props = defineProps<{ suggestion: Suggestion; asOfDate: string }>()
+  const props = defineProps<{ suggestion: Suggestion; asOfDate: string; analysisTo: string }>()
   const percent = (value: number): string =>
     `${new Intl.NumberFormat('pt-BR', { maximumFractionDigits: 2 }).format(value)}%`
   const explanation = computed<{ formula: string; criterion: string }>(() => {
@@ -40,7 +40,7 @@
   const recordLinks = computed<{ label: string; href: string }[]>(() => {
     const item = props.suggestion
     if (!item.period) {
-      return [{ label: 'Conferir cadastro dos produtos', href: '/produtos' }]
+      return [{ label: 'Conferir cadastro dos produtos', href: productsHref(props.analysisTo) }]
     }
     if (item.ruleId === 'EXPENSE_PRESSURE') {
       return [

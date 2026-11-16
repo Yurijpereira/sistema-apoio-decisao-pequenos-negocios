@@ -3,6 +3,7 @@ import { flushPromises, mount } from '@vue/test-utils'
 import { afterEach, beforeEach, describe, it, vi } from 'vitest'
 import AnalysisComparison from '../../app/components/AnalysisComparison.vue'
 import Suggestions from '../../app/pages/sugestoes.vue'
+import Products from '../../app/pages/produtos.vue'
 import { analyzeSuggestions } from '../../server/decision/suggestions.ts'
 import { comparisonInput, comparisonReport } from './comparison-support'
 import {
@@ -98,6 +99,53 @@ describe('referência temporária na tela de análise', () => {
     await wrapper.get('form').trigger('submit')
     await flushPromises()
   }
+  it('conserva a referência no percurso sugestão → produtos → análise e exige nova confirmação', async () => {
+    const input = comparisonInput()
+    const api = vi
+      .fn()
+      .mockImplementation(
+        async (path: string, options?: { query?: { recordsComplete?: string } }) => {
+          if (path === '/api/products') {
+            return { items: [], total: 0, page: 1, pageSize: 20 }
+          }
+          return analyzeSuggestions({
+            ...input,
+            recordsComplete: options?.query?.recordsComplete === 'true',
+          })
+        },
+      )
+    vi.stubGlobal('$fetch', api)
+    const initial = mount(Suggestions)
+    await flushPromises()
+    await confirm(initial)
+    const href = initial.get('[data-rule="BELOW_COST"] nav a').attributes('href')
+    assert.equal(href, '/produtos?analysisTo=2026-10-14')
+    const reference = sessionStorage.getItem(REFERENCE_STORAGE_KEY)
+    assert.ok(reference)
+    initial.unmount()
+    const url = new URL(href, 'http://localhost')
+    vi.stubGlobal('useRoute', () => ({ query: Object.fromEntries(url.searchParams) }))
+    const products = mount(Products)
+    await flushPromises()
+    const back = products.get('a.secondary-link').attributes('href')
+    assert.equal(back, '/sugestoes?to=2026-10-14')
+    assert.equal(sessionStorage.getItem(REFERENCE_STORAGE_KEY), reference)
+    products.unmount()
+    input.belowCostProducts = []
+    const returnUrl = new URL(back, 'http://localhost')
+    vi.stubGlobal('useRoute', () => ({ query: Object.fromEntries(returnUrl.searchParams) }))
+    const returned = mount(Suggestions)
+    await flushPromises()
+    assert.equal(returned.get<HTMLInputElement>('#suggestions-to').element.value, '2026-10-14')
+    assert.equal(returned.get<HTMLInputElement>('#records-complete').element.checked, false)
+    assert.equal(returned.find('.analysis-comparison').exists(), false)
+    assert.equal(sessionStorage.getItem(REFERENCE_STORAGE_KEY), reference)
+    await confirm(returned)
+    assert.match(returned.get('.analysis-comparison').text(), /Deixou de ser exibida \(1\)/)
+    assert.equal(returned.find('[data-rule="BELOW_COST"]').exists(), false)
+    assert.equal(returned.findAll('[data-rule]').length, 3)
+    returned.unmount()
+  })
   it('sobrevive ao retorno dos registros sem restaurar a confirmação e compara só após conferir', async () => {
     sessionStorage.setItem(REFERENCE_STORAGE_KEY, JSON.stringify(baseline()))
     const unconfirmed = analyzeSuggestions({ ...comparisonInput(), recordsComplete: false })
