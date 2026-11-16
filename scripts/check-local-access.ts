@@ -42,16 +42,22 @@ async function request(path: string, method = 'GET', headers: Record<string, str
     signal: AbortSignal.timeout(10000),
   })
 }
-// O fetch normaliza Host; o cliente HTTP nativo exercita o cabeçalho real.
-function externalHostStatus(path: string, method = 'GET'): Promise<number | undefined> {
+// Opções nativas preservam o caminho bruto e o Host; fetch/URL normalizam dot segments.
+function externalHostStatus(
+  path: string,
+  method = 'GET',
+  host = 'external.example',
+): Promise<number | undefined> {
   return new Promise((resolve, reject) => {
     const request = nodeRequest(
-      `${server.base}${path}`,
       {
+        hostname: '127.0.0.1',
+        port: new URL(server.base).port,
+        path,
         method,
         headers: {
           'content-length': method === 'GET' ? '0' : '2',
-          host: 'external.example',
+          host,
           origin: server.base,
           'content-type': 'application/json',
         },
@@ -138,6 +144,23 @@ try {
   await server.start(false)
   for (const path of pages) {
     assert.equal((await request(path)).status, 403, path)
+  }
+  // Regressão dos bypasses de middleware/route rules corrigidos no Nuxt 4.6.4.
+  for (const path of [
+    '/PRODUTOS',
+    '/x/../produtos',
+    '/%2e/produtos',
+    '//x/produtos',
+    '///x/produtos',
+    '/sugestoes/%2e%2e/produtos',
+  ]) {
+    for (const host of ['external.example', new URL(server.base).host]) {
+      const status = await externalHostStatus(path, 'GET', host)
+      assert.ok(
+        status && [400, 403, 404].includes(status),
+        `${path} deve ser bloqueado sem renderizar página protegida.`,
+      )
+    }
   }
   for (const [path, method] of endpoints) {
     assert.equal((await request(`/api/${path}`, method)).status, 403, path)
