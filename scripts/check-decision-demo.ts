@@ -44,6 +44,15 @@ try {
   assert.equal(initialSummary.costCents, 60000)
   assert.equal(initialSummary.grossMarginPercent, 20)
   assert.equal(initialSummary.expenseRevenuePercent, 65)
+  assert.deepEqual(before.previousSummary, {
+    revenueCents: 100000,
+    costCents: 80000,
+    quantity: 100,
+    saleCount: 3,
+    expenseCents: 0,
+    grossMarginPercent: 20,
+    expenseRevenuePercent: 0,
+  })
   const unconfirmed = await server.api('suggestions?to=2026-10-14')
   assert.deepEqual(rules(unconfirmed), ['BELOW_COST'])
   assert.deepEqual(analysisStatuses(unconfirmed), [
@@ -62,6 +71,7 @@ try {
   assert.deepEqual(rules(afterExpense), ['BELOW_COST', 'LOW_MARGIN', 'SALES_DROP'])
   assert.equal(object(afterExpense.summary).expenseRevenuePercent, 40)
   assert.deepEqual(analysisStatuses(afterExpense), ['attention', 'no-alert', 'attention'])
+  assert.deepEqual(afterExpense.previousSummary, before.previousSummary)
 
   const saleId = DEMO_SALE_IDS[3]
   assert.ok(saleId)
@@ -91,6 +101,7 @@ try {
   const afterCatalog = await server.api(query)
   assert.deepEqual(rules(afterCatalog), [])
   assert.deepEqual(afterCatalog.summary, afterSale.summary)
+  assert.deepEqual(afterCatalog.previousSummary, before.previousSummary)
   assert.equal(await seedDemo(db), 'preserved')
   assert.equal(
     (await db.expense.findUniqueOrThrow({ where: { id: DEMO_EXPENSE_ID } })).amountCents,

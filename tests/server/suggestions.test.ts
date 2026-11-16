@@ -322,3 +322,18 @@ describe('situação explícita das três análises', () => {
     assert.equal(analyzeSuggestions(data).analyses[2]?.status, 'insufficient-data')
   })
 })
+
+describe('dados dos períodos para comparação entre consultas', () => {
+  it('retorna os indicadores da semana anterior do mesmo conjunto validado', () => {
+    const result = analyzeSuggestions(input())
+    assert.deepEqual(result.previousSummary, {
+      revenueCents: 100000,
+      costCents: 80000,
+      quantity: 100,
+      saleCount: 3,
+      expenseCents: 0,
+      grossMarginPercent: 20,
+      expenseRevenuePercent: 0,
+    })
+  })
+})

@@ -1,18 +1,33 @@
 <script setup lang="ts">
   import { computed, onMounted, reactive, ref } from 'vue'
   import AnalysisStatus from '../components/AnalysisStatus.vue'
+  import AnalysisComparison from '../components/AnalysisComparison.vue'
   import SuggestionCard from '../components/SuggestionCard.vue'
   import AppIcon from '../components/AppIcon.vue'
   import type { SuggestionReport } from '#shared/types/suggestions'
   import { formatCents } from '#shared/utils/money'
   import { analysisDate } from '../utils/analysis-context'
   import { parseCivilDate } from '#shared/utils/dates'
+  import {
+    captureAnalysis,
+    compareAnalyses,
+    parseAnalysisReference,
+    REFERENCE_STORAGE_KEY,
+    sameAnalysisContext,
+    type AnalysisReference,
+    type AnalysisComparison as Comparison,
+  } from '../utils/analysis-comparison'
 
   const route = useRoute()
   const draft = reactive({ to: '', recordsComplete: false })
   const report = ref<SuggestionReport | null>(null)
   const loading = ref(false)
   const error = ref('')
+  const reference = ref<AnalysisReference | null>(null)
+  const comparison = ref<Comparison | null>(null)
+  const storageWarning = ref('')
+  const storageUnavailableMessage =
+    'O navegador não permite guardar a referência nesta aba. A análise funciona, mas a comparação pode se perder ao sair da página.'
   const showNotices = computed(
     () =>
       report.value &&
@@ -23,8 +38,29 @@
       ),
   )
 
-  function clearAnalysis(): void {
+  function persistReference(): void {
+    try {
+      if (reference.value) {
+        sessionStorage.setItem(REFERENCE_STORAGE_KEY, JSON.stringify(reference.value))
+      } else {
+        sessionStorage.removeItem(REFERENCE_STORAGE_KEY)
+      }
+    } catch {
+      storageWarning.value = storageUnavailableMessage
+    }
+  }
+  function discardReference(): void {
+    reference.value = null
+    comparison.value = null
+    persistReference()
+  }
+  function clearResults(): void {
     report.value = null
+    comparison.value = null
+  }
+  function clearAnalysis(): void {
+    clearResults()
+    discardReference()
     draft.recordsComplete = false
   }
   async function load(): Promise<void> {
@@ -36,7 +72,7 @@
       return
     }
     loading.value = true
-    report.value = null
+    clearResults()
     error.value = ''
     try {
       const result = await $fetch<SuggestionReport>('/api/suggestions', {
@@ -47,6 +83,15 @@
       })
       report.value = result
       draft.to = result.period.to
+      if (reference.value && !sameAnalysisContext(reference.value, result)) {
+        discardReference()
+      }
+      const current = draft.recordsComplete ? captureAnalysis(result, Date.now()) : null
+      if (current) {
+        comparison.value = reference.value ? compareAnalyses(reference.value, current) : null
+        reference.value = current
+        persistReference()
+      }
     } catch (cause: unknown) {
       const code =
         typeof cause === 'object' && cause !== null && 'statusCode' in cause
@@ -63,6 +108,15 @@
     }
   }
   onMounted(() => {
+    try {
+      const stored = sessionStorage.getItem(REFERENCE_STORAGE_KEY)
+      reference.value = parseAnalysisReference(stored, Date.now())
+      if (stored && !reference.value) {
+        persistReference()
+      }
+    } catch {
+      storageWarning.value = storageUnavailableMessage
+    }
     if (route.query.to !== undefined) {
       const to = analysisDate(route.query.to)
       if (!to) {
@@ -159,7 +213,7 @@
                 id="records-complete"
                 v-model="draft.recordsComplete"
                 type="checkbox"
-                @change="report = null"
+                @change="clearResults"
               />
               Conferi que todas as vendas e despesas dos dois períodos foram registradas e que as
               semanas são comparáveis.
@@ -179,6 +233,13 @@
         </fieldset>
       </form>
     </section>
+    <p
+      v-if="storageWarning"
+      class="help"
+      role="status"
+    >
+      {{ storageWarning }}
+    </p>
     <p
       v-if="error"
       class="error-banner"
@@ -225,6 +286,25 @@
             ? 'declarados completos pelo usuário'
             : 'sem confirmação de completude'
         }}. Datas inclusivas.
+      </p>
+      <AnalysisComparison
+        v-if="comparison"
+        :comparison="comparison"
+        @discard="discardReference"
+      />
+      <p
+        v-else-if="reference && draft.recordsComplete && report.recordsComplete"
+        class="help reference-note"
+      >
+        Referência guardada nesta aba. Depois de conferir ou corrigir os registros, volte à mesma
+        semana, confirme os dados e atualize para ver o antes e depois.
+        <button
+          type="button"
+          class="secondary"
+          @click="discardReference"
+        >
+          Descartar referência
+        </button>
       </p>
       <AnalysisStatus :analyses="report.analyses" />
       <p

@@ -115,6 +115,7 @@ export interface RuleAnalysis {
 
 export interface SuggestionReport {
   summary: PeriodSummary
+  previousSummary: PeriodSummary
   asOfDate: string
   period: DatePeriod
   previousPeriod: DatePeriod

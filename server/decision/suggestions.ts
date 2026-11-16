@@ -1,9 +1,11 @@
 import type {
   DatePeriod,
   DecisionInput,
+  DecisionTotals,
   Suggestion,
   SuggestionReport,
 } from '../../shared/types/suggestions.ts'
+import type { PeriodSummary } from '../../shared/types/operations.ts'
 import { assessAnalyses } from './analysis-status.ts'
 import { calculateExpenseRevenuePercent, calculateGrossMarginPercent } from './metrics.ts'
 import { parseCivilDate } from '../../shared/utils/dates.ts'
@@ -36,6 +38,14 @@ function integer(value: number): void {
 function text(value: string, max: number): void {
   if (!value.trim() || value.length > max || /\p{Cc}/u.test(value)) {
     throw new RangeError('Identificação inválida.')
+  }
+}
+
+function periodSummary(totals: DecisionTotals): PeriodSummary {
+  return {
+    ...totals,
+    grossMarginPercent: calculateGrossMarginPercent(totals.revenueCents, totals.costCents),
+    expenseRevenuePercent: calculateExpenseRevenuePercent(totals.expenseCents, totals.revenueCents),
   }
 }
 
@@ -111,17 +121,8 @@ export function analyzeSuggestions(input: DecisionInput): SuggestionReport {
     )
   }
   return {
-    summary: {
-      ...input.current,
-      grossMarginPercent: calculateGrossMarginPercent(
-        input.current.revenueCents,
-        input.current.costCents,
-      ),
-      expenseRevenuePercent: calculateExpenseRevenuePercent(
-        input.current.expenseCents,
-        input.current.revenueCents,
-      ),
-    },
+    summary: periodSummary(input.current),
+    previousSummary: periodSummary(input.previous),
     asOfDate: input.asOfDate,
     period: periods.current,
     previousPeriod: periods.previous,

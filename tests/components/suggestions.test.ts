@@ -16,6 +16,15 @@ function report(): SuggestionReport {
       grossMarginPercent: 20,
       expenseRevenuePercent: 21.67,
     },
+    previousSummary: {
+      revenueCents: 100000,
+      costCents: 80000,
+      quantity: 100,
+      saleCount: 3,
+      expenseCents: 0,
+      grossMarginPercent: 20,
+      expenseRevenuePercent: 0,
+    },
     asOfDate: '2026-10-15',
     period: { from: '2026-10-08', to: '2026-10-14' },
     previousPeriod: { from: '2026-10-01', to: '2026-10-07' },
@@ -67,7 +76,10 @@ function report(): SuggestionReport {
     ],
   }
 }
-beforeEach(() => vi.stubGlobal('useRoute', () => ({ query: {} })))
+beforeEach(() => {
+  sessionStorage.clear()
+  vi.stubGlobal('useRoute', () => ({ query: {} }))
+})
 afterEach(() => {
   vi.unstubAllGlobals()
   vi.restoreAllMocks()

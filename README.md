@@ -128,6 +128,24 @@ registros do período; depois de corrigir uma operação, volte à análise e co
 novamente. A demonstração é uma simulação, sem comprovação de resultado real.
 Encerre com Ctrl+C para remover somente os dados temporários dessa execução.
 
+Para percorrer o exemplo, mantenha a mesma aba e a semana encerrada em 14/10/2026:
+
+1. Confira e confirme os registros: margem bruta estimada de 20%, despesas/receita
+   de 65% e variação de receita de −25%, além do aviso independente do cadastro.
+2. Pelo cartão de despesas, simule a correção da despesa fictícia de R$ 487,50
+   para R$ 300,00. Volte e confirme novamente: o comparativo mostra 65% → 40%,
+   retirando somente a sugestão de despesas.
+3. Pelo cartão de margem, simule a correção de uma venda fictícia de 25 unidades:
+   preço unitário de R$ 10,00 para R$ 20,00. Receita passa a R$ 1.000,00 e margem
+   bruta estimada a 40%; as sugestões de margem e queda deixam de aparecer.
+4. No produto fictício, ajuste o cadastro para preço R$ 10,00 e custo R$ 8,00.
+   O aviso do cadastro sai, preservando os valores históricos das vendas.
+
+O terminal também apresenta esse roteiro. Para repeti-lo desde o início, encerre
+a demo e execute `npm run demo` novamente: cada execução usa um novo schema.
+Após encerrar a demo, `npm run test:integration:demo-command` verifica seu início,
+isolamento, reinício e limpeza por SIGINT/SIGTERM; exige build e PostgreSQL local.
+
 ## Qualidade
 
 ```bash
